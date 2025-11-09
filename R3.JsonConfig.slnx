@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/SolutionItems/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="README.md" />
+  </Folder>
+  <Project Path="R3.JsonConfig.Demo.Generators/R3.JsonConfig.Demo.Generators.csproj" Id="bbf6b620-ba20-458f-a5da-7d940185be20" />
+  <Project Path="R3.JsonConfig.Demo/R3.JsonConfig.Demo.csproj" />
+  <Project Path="R3.JsonConfig.Generators/R3.JsonConfig.Generators.csproj" />
+  <Project Path="R3.JsonConfig/R3.JsonConfig.csproj" />
+</Solution>

@@ -265,7 +265,7 @@ public partial class {{dtoName}} {
 {{propLines}}
 
 	[return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(json))]
-	public static {{modelName}}? CreateModel({{dtoName}}? json, IServiceProvider sp) {
+	public static {{modelName}}? CreateModel({{dtoName}}? json, System.IServiceProvider sp) {
 		if(json is null){
 			return null;
 		}

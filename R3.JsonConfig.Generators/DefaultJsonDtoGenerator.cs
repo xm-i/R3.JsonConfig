@@ -10,8 +10,7 @@ namespace R3.JsonConfig.Generators;
 public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 	protected virtual string TargetAttribute {
 		get;
-	} = "R3.JsonConfig.Attributes.GenerateR3JsonConfigDefaultDtoAttribute";
-	protected readonly List<ConversionRule> ConversionRules = [];
+	} = "R3.JsonConfig.Attributes.GenerateR3JsonConfigDtoAttribute";
 
 	private enum PropertyKind {
 		Plain,
@@ -21,7 +20,6 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 
 	private enum TypeKind {
 		Plain,
-		Conversion,
 		ForJson
 	}
 
@@ -81,11 +79,7 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 				var itemType = nts.TypeArguments[0];
 				var display = itemType.ToDisplayString();
 				var nonNullable = display.EndsWith("?") ? display.Substring(0, display.Length - 1) : display;
-				var cr = this.ConversionRules.FirstOrDefault(cr => nonNullable == cr.TypeFullName);
-				if (cr != null) {
-					props.Add((member.Name, $"{JsonConfigUtil.JsonDtoTypeToString(cr.DtoType)}[]?", PropertyKind.ObservableList, TypeKind.Conversion, JsonConfigUtil.JsonDtoTypeToString(cr.DtoType), nonNullable));
-					continue;
-				}
+
 				if (itemType is INamedTypeSymbol itemNamed && this.HasGenerateJsonDtoAttribute(itemNamed)) {
 					var itemDtoName = itemNamed.ToDisplayString() + "ForJson";
 					props.Add((member.Name, $"{itemDtoName}[]?", PropertyKind.ObservableList, TypeKind.ForJson, itemDtoName, nonNullable));
@@ -101,11 +95,6 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 				var innerDisplay = innerTypeSymbol.ToDisplayString();
 				var innerNonNullable = innerDisplay.EndsWith("?") ? innerDisplay.Substring(0, innerDisplay.Length - 1) : innerDisplay;
 
-				var cr = this.ConversionRules.FirstOrDefault(cr => innerNonNullable == cr.TypeFullName);
-				if (cr != null) {
-					props.Add((member.Name, JsonConfigUtil.JsonDtoTypeToString(cr.DtoType), PropertyKind.ReactiveProperty, TypeKind.Conversion, JsonConfigUtil.JsonDtoTypeToString(cr.DtoType), innerNonNullable));
-					continue;
-				}
 				if (innerTypeSymbol is INamedTypeSymbol named && this.HasGenerateJsonDtoAttribute(named)) {
 					var memberDtoName = innerNonNullable + "ForJson";
 					props.Add((member.Name, memberDtoName + "?", PropertyKind.ReactiveProperty, TypeKind.ForJson, memberDtoName, innerNonNullable));
@@ -118,12 +107,6 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 			var settableProperty = member.SetMethod is { } set && set.DeclaredAccessibility == Accessibility.Public;
 			if (settableProperty) {
 				var nonNullable = typeName.EndsWith("?") ? typeName.Substring(0, typeName.Length - 1) : typeName;
-
-				var cr = this.ConversionRules.FirstOrDefault(cr => nonNullable == cr.TypeFullName);
-				if (cr != null) {
-					props.Add((member.Name, JsonConfigUtil.JsonDtoTypeToString(cr.DtoType), PropertyKind.Plain, TypeKind.Conversion, JsonConfigUtil.JsonDtoTypeToString(cr.DtoType), nonNullable));
-					continue;
-				}
 
 				if (typeSymbol is INamedTypeSymbol named && this.HasGenerateJsonDtoAttribute(named)) {
 					var memberDtoName = nonNullable + "ForJson";
@@ -151,9 +134,7 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 		var createModelBodyBuilder = new StringBuilder();
 		foreach (var p in props) {
 			var varName = "notNull" + p.Name;
-			var cr = this.ConversionRules.FirstOrDefault(cr => cr.TypeFullName == p.NonNullableItemTypeFullName);
 			var modelValue = p.TypeKind switch {
-				TypeKind.Conversion => $"{cr.InverterMethodName}(e)",
 				TypeKind.ForJson => $"{p.JsonItemType}.CreateModel(e,  sp.CreateScope().ServiceProvider)",
 				TypeKind.Plain => $"e",
 				_ => throw new Exception("Unknown type kind: " + p.TypeKind)
@@ -192,11 +173,6 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 		var createJsonLinesBuilder = new StringBuilder();
 		for (var i = 0; i < props.Count; i++) {
 			var p = props[i];
-			var cr = this.ConversionRules.FirstOrDefault(cr => cr.TypeFullName == p.NonNullableItemTypeFullName);
-			if (p.TypeKind == TypeKind.Conversion && cr == null) {
-				throw new Exception("ConversionRule not found");
-			}
-
 			string setJsonPropertyLogic;
 			switch (p.PropertyKind) {
 				case PropertyKind.Plain:
@@ -206,9 +182,6 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 							break;
 						case TypeKind.ForJson:
 							setJsonPropertyLogic = $"{p.JsonItemType}.CreateJson(model.{p.Name})";
-							break;
-						case TypeKind.Conversion:
-							setJsonPropertyLogic = $"{cr.ConverterMethodName}(model.{p.Name})";
 							break;
 						default:
 							throw new Exception("Unknown type kind:" + p.TypeKind);
@@ -222,9 +195,6 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 						case TypeKind.ForJson:
 							setJsonPropertyLogic = $"{p.JsonItemType}.CreateJson(model.{p.Name}.Value)";
 							break;
-						case TypeKind.Conversion:
-							setJsonPropertyLogic = $"{cr.ConverterMethodName}(model.{p.Name}.Value)";
-							break;
 						default:
 							throw new Exception("Unknown type kind:" + p.TypeKind);
 					}
@@ -236,9 +206,6 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 							break;
 						case TypeKind.ForJson:
 							setJsonPropertyLogic = $"model.{p.Name}.Select(x => {p.JsonItemType}.CreateJson(x)).ToArray()";
-							break;
-						case TypeKind.Conversion:
-							setJsonPropertyLogic = $"model.{p.Name}.Select(x => {cr.ConverterMethodName}(x)).ToArray()";
 							break;
 						default:
 							throw new Exception("Unknown type kind:" + p.TypeKind);

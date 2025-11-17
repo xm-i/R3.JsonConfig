@@ -2,7 +2,8 @@ using System.Text.Json;
 
 using Microsoft.Extensions.DependencyInjection;
 
-using R3.JsonConfig.Demo.Store;
+using R3.JsonConfig.Demo;
+using R3.JsonConfig.Demo.Composition.Store;
 
 public class Program {
 	public static void Main(string[] args) {
@@ -19,9 +20,7 @@ public class Program {
 			var json = File.ReadAllText("config.json");
 			JsonSerializer.Deserialize<ParentModelForJson>(json);
 		} else {
-			var json = JsonSerializer.Serialize(ParentModelForJson.CreateJson(pm), new JsonSerializerOptions() {
-				WriteIndented = true
-			});
+			var json = JsonSerializer.Serialize(ParentModelForJson.CreateJson(pm), ConfigJsonSerializerContext.Default.ParentModelForJson);
 			File.WriteAllText("config.json", json);
 		}
 	}

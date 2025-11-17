@@ -2,9 +2,11 @@ using System.Drawing;
 
 using ObservableCollections;
 
-namespace R3.JsonConfig.Demo.Store;
+using R3.JsonConfig.Attributes;
 
-[OriginalDto]
+namespace R3.JsonConfig.Demo.Composition.Store;
+
+[GenerateR3JsonConfigDto]
 public class ParentModel {
 
 	public ReactiveProperty<string> StringRp {

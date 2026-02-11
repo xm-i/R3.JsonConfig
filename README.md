@@ -15,9 +15,22 @@
 - ネストされた対象モデルは再帰的に DTO 化。
 
 ## 属性
-| 属性 | 定義場所 | 役割 |
-|------|----------|------|
-| `GenerateR3JsonConfigDtoAttribute` | ライブラリ | DTO 生成トリガー |
+| 属性 | 対象 | 役割 |
+|------|------|------|
+| `GenerateR3JsonConfigDtoAttribute` | クラス | DTO 生成トリガー |
+| `ExcludePropertyAttribute` | プロパティ | DTO 生成から除外 |
+
+### ExcludePropertyAttribute
+特定のプロパティを DTO に含めたくない場合に使用:
+```csharp
+[GenerateR3JsonConfigDto]
+public class MyModel {
+    public string Name { get; set; } = "";
+
+    [ExcludeProperty]
+    public string Secret { get; set; } = ""; // DTO に含まれない
+}
+```
 
 ## 生成される API 例
 `ParentModel` → `ParentModelForJson` に以下が生成:

@@ -12,6 +12,10 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 		get;
 	} = "R3.JsonConfig.Attributes.GenerateR3JsonConfigDtoAttribute";
 
+	protected virtual string ExcludePropertyAttributeName {
+		get;
+	} = "R3.JsonConfig.Attributes.ExcludePropertyAttribute";
+
 	private enum PropertyKind {
 		Plain,
 		ReactiveProperty,
@@ -70,6 +74,10 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 		var props = new List<(string Name, string JsonType, PropertyKind PropertyKind, TypeKind TypeKind, string JsonItemType, string NonNullableItemTypeFullName)>();
 		foreach (var member in modelSymbol.GetMembers().OfType<IPropertySymbol>()) {
 			if (member.DeclaredAccessibility != Accessibility.Public) {
+				continue;
+			}
+			// Skip properties with IgnorePropertyAttribute
+			if (member.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == this.ExcludePropertyAttributeName)) {
 				continue;
 			}
 			var typeSymbol = member.Type;

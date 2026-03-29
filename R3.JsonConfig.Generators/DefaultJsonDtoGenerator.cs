@@ -29,12 +29,14 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 
 	public void Initialize(IncrementalGeneratorInitializationContext context) {
 		var candidates = context.SyntaxProvider
-			.CreateSyntaxProvider(static (s, _) => s is ClassDeclarationSyntax cds && cds.AttributeLists.Count > 0,
+			.CreateSyntaxProvider(static (s, _) => s is ClassDeclarationSyntax {
+					AttributeLists.Count: > 0
+				},
 				(ctx, _) => this.GetTarget(ctx))
-			.Where(static m => m is not null);
+			.Where(static m => m is { });
 
 		var compilationAndModels = context.CompilationProvider.Combine(candidates.Collect());
-		context.RegisterSourceOutput(compilationAndModels, (spc, source) => this.Execute(spc, source.Left, source.Right!));
+		context.RegisterSourceOutput(compilationAndModels, (spc, source) => this.Execute(spc, source.Left, source.Right));
 	}
 
 	private INamedTypeSymbol? GetTarget(GeneratorSyntaxContext ctx) {
@@ -52,7 +54,7 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 			try {
 				this.GenerateForSymbol(context, symbol);
 			} catch (Exception ex) {
-				context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor("RJG001", "JsonDtoGenerator Error", "{0}", "JsonDtoGenerator", DiagnosticSeverity.Warning, true), Location.None, ex.Message));
+				context.ReportDiagnostic(Diagnostic.Create(new("RJG001", "JsonDtoGenerator Error", "{0}", "JsonDtoGenerator", DiagnosticSeverity.Warning, true), Location.None, ex.Message));
 			}
 		}
 	}
@@ -83,37 +85,49 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 			var typeSymbol = member.Type;
 			var typeName = typeSymbol.ToDisplayString();
 
-			if (typeSymbol is INamedTypeSymbol nts && nts.TypeArguments.Length == 1 && nts.MetadataName == "ObservableList`1" && nts.ContainingNamespace.ToDisplayString() == "ObservableCollections") {
-				var itemType = nts.TypeArguments[0];
-				var display = itemType.ToDisplayString();
-				var nonNullable = display.EndsWith("?") ? display.Substring(0, display.Length - 1) : display;
+			switch (typeSymbol) {
+				case INamedTypeSymbol {
+					TypeArguments.Length: 1, MetadataName: "ObservableList`1"
+				} nts when nts.ContainingNamespace.ToDisplayString() == "ObservableCollections":
+				{
+					var itemType = nts.TypeArguments[0];
+					var display = itemType.ToDisplayString();
+					var nonNullable = display.EndsWith("?") ? display.Substring(0, display.Length - 1) : display;
 
-				if (itemType is INamedTypeSymbol itemNamed && this.HasGenerateJsonDtoAttribute(itemNamed)) {
-					var itemDtoName = itemNamed.ToDisplayString() + "ForJson";
-					props.Add((member.Name, $"{itemDtoName}[]?", PropertyKind.ObservableList, TypeKind.ForJson, itemDtoName, nonNullable));
+					if (itemType is INamedTypeSymbol itemNamed && this.HasGenerateJsonDtoAttribute(itemNamed)) {
+						var itemDtoName = itemNamed.ToDisplayString() + "ForJson";
+						props.Add((member.Name, $"{itemDtoName}[]?", PropertyKind.ObservableList, TypeKind.ForJson, itemDtoName, nonNullable));
+						continue;
+					}
+
+					props.Add((member.Name, $"{itemType.ToDisplayString()}[]?", PropertyKind.ObservableList, TypeKind.Plain, itemType.ToDisplayString(), nonNullable));
 					continue;
 				}
+				case INamedTypeSymbol {
+					TypeArguments.Length: 1, MetadataName: "ReactiveProperty`1"
+				} reactive:
+				{
+					var innerTypeSymbol = reactive.TypeArguments[0];
+					var innerDisplay = innerTypeSymbol.ToDisplayString();
+					var innerNonNullable = innerDisplay.EndsWith("?") ? innerDisplay.Substring(0, innerDisplay.Length - 1) : innerDisplay;
 
-				props.Add((member.Name, $"{itemType.ToDisplayString()}[]?", PropertyKind.ObservableList, TypeKind.Plain, itemType.ToDisplayString(), nonNullable));
-				continue;
-			}
-
-			if (typeSymbol is INamedTypeSymbol reactive && reactive.TypeArguments.Length == 1 && reactive.MetadataName == "ReactiveProperty`1") {
-				var innerTypeSymbol = reactive.TypeArguments[0];
-				var innerDisplay = innerTypeSymbol.ToDisplayString();
-				var innerNonNullable = innerDisplay.EndsWith("?") ? innerDisplay.Substring(0, innerDisplay.Length - 1) : innerDisplay;
-
-				if (innerTypeSymbol is INamedTypeSymbol named && this.HasGenerateJsonDtoAttribute(named)) {
-					var memberDtoName = innerNonNullable + "ForJson";
-					props.Add((member.Name, memberDtoName + "?", PropertyKind.ReactiveProperty, TypeKind.ForJson, memberDtoName, innerNonNullable));
+					if (innerTypeSymbol is INamedTypeSymbol named && this.HasGenerateJsonDtoAttribute(named)) {
+						var memberDtoName = innerNonNullable + "ForJson";
+						props.Add((member.Name, memberDtoName + "?", PropertyKind.ReactiveProperty, TypeKind.ForJson, memberDtoName, innerNonNullable));
+						continue;
+					}
+					props.Add((member.Name, innerNonNullable + "?", PropertyKind.ReactiveProperty, TypeKind.Plain, innerDisplay, innerNonNullable));
 					continue;
 				}
-				props.Add((member.Name, innerNonNullable + "?", PropertyKind.ReactiveProperty, TypeKind.Plain, innerDisplay, innerNonNullable));
-				continue;
 			}
 
-			var settableProperty = member.SetMethod is { } set && set.DeclaredAccessibility == Accessibility.Public;
-			if (settableProperty) {
+			var settableProperty = member.SetMethod is {
+				DeclaredAccessibility: Accessibility.Public
+			};
+			if (!settableProperty) {
+				continue;
+			}
+			{
 				var nonNullable = typeName.EndsWith("?") ? typeName.Substring(0, typeName.Length - 1) : typeName;
 
 				if (typeSymbol is INamedTypeSymbol named && this.HasGenerateJsonDtoAttribute(named)) {
@@ -122,7 +136,6 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 					continue;
 				}
 				props.Add((member.Name, nonNullable + "?", PropertyKind.Plain, TypeKind.Plain, nonNullable, nonNullable));
-				continue;
 			}
 		}
 
@@ -143,8 +156,8 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 			var varName = "notNull" + p.Name;
 			var modelValue = p.TypeKind switch {
 				TypeKind.ForJson => $"{p.JsonItemType}.CreateModel(e,  sp.CreateScope().ServiceProvider)",
-				TypeKind.Plain => $"e",
-				_ => throw new Exception("Unknown type kind: " + p.TypeKind)
+				TypeKind.Plain => "e",
+				_ => throw new("Unknown type kind: " + p.TypeKind)
 			};
 
 			var setPropertyLogic = p.PropertyKind switch {
@@ -168,7 +181,7 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 								model.{{p.Name}} = {{modelValue}};
 							}
 					""",
-				_ => throw new Exception("Unknown property kind: " + p.TypeKind)
+				_ => throw new("Unknown property kind: " + p.TypeKind)
 			};
 
 			createModelBodyBuilder.AppendLine(setPropertyLogic);
@@ -178,49 +191,25 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 		var createModelBody = createModelBodyBuilder.ToString();
 
 		var createJsonLinesBuilder = new StringBuilder();
-		for (var i = 0; i < props.Count; i++) {
-			var p = props[i];
-			string setJsonPropertyLogic;
-			switch (p.PropertyKind) {
-				case PropertyKind.Plain:
-					switch (p.TypeKind) {
-						case TypeKind.Plain:
-							setJsonPropertyLogic = $"model.{p.Name}";
-							break;
-						case TypeKind.ForJson:
-							setJsonPropertyLogic = $"{p.JsonItemType}.CreateJson(model.{p.Name})";
-							break;
-						default:
-							throw new Exception("Unknown type kind:" + p.TypeKind);
-					}
-					break;
-				case PropertyKind.ReactiveProperty:
-					switch (p.TypeKind) {
-						case TypeKind.Plain:
-							setJsonPropertyLogic = $"model.{p.Name}.Value";
-							break;
-						case TypeKind.ForJson:
-							setJsonPropertyLogic = $"{p.JsonItemType}.CreateJson(model.{p.Name}.Value)";
-							break;
-						default:
-							throw new Exception("Unknown type kind:" + p.TypeKind);
-					}
-					break;
-				case PropertyKind.ObservableList:
-					switch (p.TypeKind) {
-						case TypeKind.Plain:
-							setJsonPropertyLogic = $"model.{p.Name}.ToArray()";
-							break;
-						case TypeKind.ForJson:
-							setJsonPropertyLogic = $"model.{p.Name}.Select(x => {p.JsonItemType}.CreateJson(x)).ToArray()";
-							break;
-						default:
-							throw new Exception("Unknown type kind:" + p.TypeKind);
-					}
-					break;
-				default:
-					throw new Exception("Unknown property property");
-			}
+		foreach (var p in props) {
+			var setJsonPropertyLogic = p.PropertyKind switch {
+				PropertyKind.Plain => p.TypeKind switch {
+					TypeKind.Plain => $"model.{p.Name}",
+					TypeKind.ForJson => $"{p.JsonItemType}.CreateJson(model.{p.Name})",
+					_ => throw new("Unknown type kind:" + p.TypeKind)
+				},
+				PropertyKind.ReactiveProperty => p.TypeKind switch {
+					TypeKind.Plain => $"model.{p.Name}.Value",
+					TypeKind.ForJson => $"{p.JsonItemType}.CreateJson(model.{p.Name}.Value)",
+					_ => throw new($"Unknown type kind:{p.TypeKind}")
+				},
+				PropertyKind.ObservableList => p.TypeKind switch {
+					TypeKind.Plain => $"model.{p.Name}.ToArray()",
+					TypeKind.ForJson => $"model.{p.Name}.Select(x => {p.JsonItemType}.CreateJson(x)).ToArray()",
+					_ => throw new("Unknown type kind:" + p.TypeKind)
+				},
+				_ => throw new("Unknown property property")
+			};
 
 			createJsonLinesBuilder.AppendLine($"\t\t\t{p.Name} = {setJsonPropertyLogic},");
 		}

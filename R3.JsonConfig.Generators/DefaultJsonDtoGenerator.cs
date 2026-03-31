@@ -88,8 +88,7 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 			switch (typeSymbol) {
 				case INamedTypeSymbol {
 					TypeArguments.Length: 1, MetadataName: "ObservableList`1"
-				} nts when nts.ContainingNamespace.ToDisplayString() == "ObservableCollections":
-				{
+				} nts when nts.ContainingNamespace.ToDisplayString() == "ObservableCollections": {
 					var itemType = nts.TypeArguments[0];
 					var display = itemType.ToDisplayString();
 					var nonNullable = display.EndsWith("?") ? display.Substring(0, display.Length - 1) : display;
@@ -105,8 +104,7 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 				}
 				case INamedTypeSymbol {
 					TypeArguments.Length: 1, MetadataName: "ReactiveProperty`1"
-				} reactive:
-				{
+				} reactive: {
 					var innerTypeSymbol = reactive.TypeArguments[0];
 					var innerDisplay = innerTypeSymbol.ToDisplayString();
 					var innerNonNullable = innerDisplay.EndsWith("?") ? innerDisplay.Substring(0, innerDisplay.Length - 1) : innerDisplay;

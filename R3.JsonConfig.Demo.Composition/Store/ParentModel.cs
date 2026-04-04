@@ -19,7 +19,7 @@ public class ParentModel {
 
 	public ReactiveProperty<ChildModel> ChildRp {
 		get;
-	} = new ();
+	} = new();
 
 	public ObservableList<int> IntArray {
 		get;

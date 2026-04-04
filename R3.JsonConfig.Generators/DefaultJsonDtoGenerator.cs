@@ -30,8 +30,8 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 	public void Initialize(IncrementalGeneratorInitializationContext context) {
 		var candidates = context.SyntaxProvider
 			.CreateSyntaxProvider(static (s, _) => s is ClassDeclarationSyntax {
-					AttributeLists.Count: > 0
-				},
+				AttributeLists.Count: > 0
+			},
 				(ctx, _) => this.GetTarget(ctx))
 			.Where(static m => m is { });
 
@@ -89,34 +89,34 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 				case INamedTypeSymbol {
 					TypeArguments.Length: 1, MetadataName: "ObservableList`1"
 				} nts when nts.ContainingNamespace.ToDisplayString() == "ObservableCollections": {
-					var itemType = nts.TypeArguments[0];
-					var display = itemType.ToDisplayString();
-					var nonNullable = display.EndsWith("?") ? display.Substring(0, display.Length - 1) : display;
+						var itemType = nts.TypeArguments[0];
+						var display = itemType.ToDisplayString();
+						var nonNullable = display.EndsWith("?") ? display.Substring(0, display.Length - 1) : display;
 
-					if (itemType is INamedTypeSymbol itemNamed && this.HasGenerateJsonDtoAttribute(itemNamed)) {
-						var itemDtoName = itemNamed.ToDisplayString() + "ForJson";
-						props.Add((member.Name, $"{itemDtoName}[]?", PropertyKind.ObservableList, TypeKind.ForJson, itemDtoName, nonNullable));
+						if (itemType is INamedTypeSymbol itemNamed && this.HasGenerateJsonDtoAttribute(itemNamed)) {
+							var itemDtoName = itemNamed.ToDisplayString() + "ForJson";
+							props.Add((member.Name, $"{itemDtoName}[]?", PropertyKind.ObservableList, TypeKind.ForJson, itemDtoName, nonNullable));
+							continue;
+						}
+
+						props.Add((member.Name, $"{itemType.ToDisplayString()}[]?", PropertyKind.ObservableList, TypeKind.Plain, itemType.ToDisplayString(), nonNullable));
 						continue;
 					}
-
-					props.Add((member.Name, $"{itemType.ToDisplayString()}[]?", PropertyKind.ObservableList, TypeKind.Plain, itemType.ToDisplayString(), nonNullable));
-					continue;
-				}
 				case INamedTypeSymbol {
 					TypeArguments.Length: 1, MetadataName: "ReactiveProperty`1"
 				} reactive: {
-					var innerTypeSymbol = reactive.TypeArguments[0];
-					var innerDisplay = innerTypeSymbol.ToDisplayString();
-					var innerNonNullable = innerDisplay.EndsWith("?") ? innerDisplay.Substring(0, innerDisplay.Length - 1) : innerDisplay;
+						var innerTypeSymbol = reactive.TypeArguments[0];
+						var innerDisplay = innerTypeSymbol.ToDisplayString();
+						var innerNonNullable = innerDisplay.EndsWith("?") ? innerDisplay.Substring(0, innerDisplay.Length - 1) : innerDisplay;
 
-					if (innerTypeSymbol is INamedTypeSymbol named && this.HasGenerateJsonDtoAttribute(named)) {
-						var memberDtoName = innerNonNullable + "ForJson";
-						props.Add((member.Name, memberDtoName + "?", PropertyKind.ReactiveProperty, TypeKind.ForJson, memberDtoName, innerNonNullable));
+						if (innerTypeSymbol is INamedTypeSymbol named && this.HasGenerateJsonDtoAttribute(named)) {
+							var memberDtoName = innerNonNullable + "ForJson";
+							props.Add((member.Name, memberDtoName + "?", PropertyKind.ReactiveProperty, TypeKind.ForJson, memberDtoName, innerNonNullable));
+							continue;
+						}
+						props.Add((member.Name, innerNonNullable + "?", PropertyKind.ReactiveProperty, TypeKind.Plain, innerDisplay, innerNonNullable));
 						continue;
 					}
-					props.Add((member.Name, innerNonNullable + "?", PropertyKind.ReactiveProperty, TypeKind.Plain, innerDisplay, innerNonNullable));
-					continue;
-				}
 			}
 
 			var settableProperty = member.SetMethod is {

@@ -1,8 +1,8 @@
+using System.Collections.Immutable;
+using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using R3.JsonConfig.Generators;
-using System.Collections.Immutable;
-using System.Reflection;
 
 namespace R3.JsonConfig.Tests;
 

@@ -29,12 +29,12 @@ public partial class MyConfig {
 
 		// Assert
 		diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty("コンパイルエラーが発生してはいけません");
-		
+
 		var generatedSources = runResult.Results.SelectMany(r => r.GeneratedSources).ToArray();
 		generatedSources.ShouldNotBeEmpty("ソースコードが生成される必要があります");
-		
+
 		var generatedSource = generatedSources.First().SourceText.ToString();
-		
+
 		// 生成されたコードの検証
 		generatedSource.Contains("public partial class MyConfigForJson").ShouldBeTrue("DTOクラス名が正しく生成されている必要があります");
 		generatedSource.Contains("public string? Name").ShouldBeTrue("ReactivePropertyがstring?に変換されている必要があります");

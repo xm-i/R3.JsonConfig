@@ -12,7 +12,8 @@
 - 公開 setter 付きプロパティ + `ReactiveProperty<T>` + `ObservableList<T>` を解析。
 - `ReactiveProperty<T>` → `T?` もしくは `NestedModelForJson?`。
 - `ObservableList<T>` → `T[]?` もしくは `NestedModelForJson[]?`。
-- ネストされた対象モデルは再帰的に DTO 化。
+- ネストされた対象モデルは再帰的に DTO 化（循環参照も自動的に解決）。
+- `___Id` と `___Ref` トークンによるオブジェクトの同一性保持と参照解決。
 
 ## 属性
 | 属性 | 対象 | 役割 |
@@ -36,8 +37,8 @@ public class MyModel {
 ## 生成される API 例
 `ParentModel` → `ParentModelForJson` に以下が生成:
 - プロパティ群 (nullable)。
-- `static ParentModel? CreateModel(ParentModelForJson? json, IServiceProvider sp)` : DI でモデル取得し反映 (ObservableList は Clear 後に再追加)。
-- `static ParentModelForJson? CreateJson(ParentModel? model)` : モデルから DTO 作成 (ObservableList は配列へ変換)。
+- `static ParentModel? CreateModel(ParentModelForJson? json, IServiceProvider sp, ReferenceResolver? resolver = null)` : DI でモデル取得し反映。`resolver` を渡すことで `___Ref` によるインスタンスの再利用が可能。
+- `static ParentModelForJson? CreateJson(ParentModel? model, ReferenceTracker? tracker = null)` : モデルから DTO 作成。`tracker` を渡すことで `___Id` / `___Ref` による循環参照の解決が可能。
 
 ## 利用手順
 1. csproj にジェネレータを Analyzer として参照:
@@ -378,7 +379,7 @@ public partial class ChildModelForJson {
 
 ```csharp
 [return: NotNullIfNotNull(nameof(json))]
-public static ParentModel? CreateModel(ParentModelForJson? json, IServiceProvider sp);
+public static ParentModel? CreateModel(ParentModelForJson? json, IServiceProvider sp, ReferenceResolver? resolver = null);
 ```
 
 | 項目 | 説明 |
@@ -404,7 +405,7 @@ public static ParentModel? CreateModel(ParentModelForJson? json, IServiceProvide
 
 ```csharp
 [return: NotNullIfNotNull(nameof(model))]
-public static ParentModelForJson? CreateJson(ParentModel? model);
+public static ParentModelForJson? CreateJson(ParentModel? model, ReferenceTracker? tracker = null);
 ```
 
 | 項目 | 説明 |
@@ -423,6 +424,15 @@ public static ParentModelForJson? CreateJson(ParentModel? model);
 | ネストされた ForJson 型 (通常) | `TForJson.CreateJson(model.Prop)` |
 | ネストされた ForJson 型 (ReactiveProperty) | `TForJson.CreateJson(model.Prop.Value)` |
 | ネストされた ForJson 型 (ObservableList) | `model.Prop.Select(x => TForJson.CreateJson(x)).ToArray()` |
+
+#### 5.3 オブジェクトの同一性保持と参照解決
+
+深い階層を持つオブジェクトグラフや循環参照を含むモデルを扱うため、DTO は内部的に `___Id` と `___Ref` トークンを使用します。
+
+- **`CreateJson` (シリアライズ時)**: `ReferenceTracker` を介してインスタンスの同一性を管理します。同一のインスタンスが複数回出現した場合、2回目以降は実データの代わりに `___Ref` (ID参照) のみを含む DTO を生成し、無限再帰を防ぎます。
+- **`CreateModel` (デシリアライズ時)**: `ReferenceResolver` を介して、`___Id` で登録されたインスタンスを `___Ref` から復元します。これにより、JSON 上で共有されていたオブジェクト関係がモデル上でも正しく再現されます。
+
+> **補足**: 引数の `tracker` / `resolver` を省略した場合は、変換の開始時に内部で自動的に新規インスタンスが作成されます。
 
 ### 6. 全体フロー図
 
@@ -455,11 +465,11 @@ public static ParentModelForJson? CreateJson(ParentModel? model);
 - 型変換ルール (Color → Hex 等) を削除。変換は利用側が別途コンバータ/専用フィールドで対応。
 - `List<T>` ではなく `T[]` を出力。
 
-## 制限 / TODO
-- 循環参照未対応。
-- Null 許容性は単純化 (全て nullable)。
-- 詳細な型メタ情報 (readonly / init など) 未反映。
-- パフォーマンス最適化 (辞書キャッシュ等) 未実装。
+## 制限事項・注意事項
+
+- **Null 許容性の単純化**: DTO 側のプロパティは、元の型に関わらず全て nullable として生成されます。
+- **型メタ情報の不完全性**: `readonly` や `init` 専用プロパティ、コンストラクタ引数による初期化ロジックなどは完全には反映されません（`CreateModel` 時は DI コンテナからの取得とプロパティ代入に基づきます）。
+- **パフォーマンス**: 大規模なオブジェクトグラフや深い階層を持つ構成では、再帰呼び出しと参照トラッキングによる代入コストが発生します。
 
 ## 開発
 ```bash

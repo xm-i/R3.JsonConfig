@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -12,6 +13,7 @@ namespace R3.JsonConfig.Generators;
 /// Domain Model から JSON シリアライズ用の DTO (Data Transfer Object) と相互変換メソッドを自動生成する Incremental Generator。
 /// R3 の ReactiveProperty や ObservableCollections の ObservableList に対応し、
 /// System.Text.Json のポリモーフィズム (JsonPolymorphic/JsonDerivedType) もサポートします。
+/// ポリモーフィズムは具象クラス側に [JsonConfigDerivedType] を付与して派生型を宣言する方式です。
 /// </summary>
 [Generator]
 public class DefaultJsonDtoGenerator : IIncrementalGenerator {
@@ -86,16 +88,79 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 		}
 	}
 
+	/// <summary>
+	/// [JsonConfigDerivedType] が付与された具象クラスの情報を保持する Equatable なモデル。
+	/// Incremental Generator のキャッシュにおいて値比較で変更を検出する。
+	/// netstandard2.0 では record が使用できないため、IEquatable を明示的に実装。
+	/// </summary>
+	private sealed class DerivedTypeEntry : IEquatable<DerivedTypeEntry> {
+		/// <summary>派生型の短縮名。</summary>
+		public string DerivedTypeName {
+			get;
+		}
+		/// <summary>JSON 内で使用する型識別文字列。</summary>
+		public string TypeDiscriminator {
+			get;
+		}
+		/// <summary>[GenerateR3JsonConfigDto] が付与されている基底型の完全修飾名。</summary>
+		public string BaseTypeFullName {
+			get;
+		}
+
+		public DerivedTypeEntry(string derivedTypeName, string typeDiscriminator, string baseTypeFullName) {
+			this.DerivedTypeName = derivedTypeName;
+			this.TypeDiscriminator = typeDiscriminator;
+			this.BaseTypeFullName = baseTypeFullName;
+		}
+
+		public bool Equals(DerivedTypeEntry? other) {
+			if (other is null) {
+				return false;
+			}
+			return this.DerivedTypeName == other.DerivedTypeName
+				&& this.TypeDiscriminator == other.TypeDiscriminator
+				&& this.BaseTypeFullName == other.BaseTypeFullName;
+		}
+
+		public override bool Equals(object? obj) {
+			return this.Equals(obj as DerivedTypeEntry);
+		}
+
+		public override int GetHashCode() {
+			unchecked {
+				var hash = 17;
+				hash = (hash * 31) + this.DerivedTypeName.GetHashCode();
+				hash = (hash * 31) + this.TypeDiscriminator.GetHashCode();
+				hash = (hash * 31) + this.BaseTypeFullName.GetHashCode();
+				return hash;
+			}
+		}
+	}
+
 	public void Initialize(IncrementalGeneratorInitializationContext context) {
-		// [GenerateR3JsonConfigDto] 属性が付与されたクラスまたはインターフェースを抽出
+		// パイプライン1: [GenerateR3JsonConfigDto] 属性が付与されたクラスまたはインターフェースを抽出
 		var candidates = context.SyntaxProvider
 			.CreateSyntaxProvider(static (s, _) => s is TypeDeclarationSyntax { AttributeLists.Count: > 0 },
 				(ctx, _) => this.GetTarget(ctx))
 			.Where(static m => m is { });
 
-		// コンパイル情報とモデル情報を結合して、ソース生成を実行
-		var compilationAndModels = context.CompilationProvider.Combine(candidates.Collect());
-		context.RegisterSourceOutput(compilationAndModels, (spc, source) => this.Execute(spc, source.Left, source.Right));
+		// パイプライン2: [JsonConfigDerivedType] 属性が付与された具象クラスから派生型情報を収集
+		var derivedEntries = context.SyntaxProvider
+			.CreateSyntaxProvider(static (s, _) => s is ClassDeclarationSyntax { AttributeLists.Count: > 0 },
+				(ctx, _) => this.GetDerivedTypeEntry(ctx))
+			.Where(static m => m is { });
+
+		// 両パイプラインを結合してソース生成を実行
+		var combined = context.CompilationProvider
+			.Combine(candidates.Collect())
+			.Combine(derivedEntries.Collect());
+
+		context.RegisterSourceOutput(combined, (spc, source) => {
+			var compilation = source.Left.Left;
+			var symbols = source.Left.Right;
+			var entries = source.Right;
+			this.Execute(spc, compilation, symbols, entries);
+		});
 	}
 
 	/// <summary>
@@ -126,12 +191,87 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 	}
 
 	/// <summary>
-	/// 抽出されたシンボルに対してソース生成処理を振り分ける。
+	/// [JsonConfigDerivedType] が付与されたクラスから、派生型エントリを構築する。
+	/// 具象クラスが実装・継承する型のうち、[GenerateR3JsonConfigDto] を持つ最初の基底型を探す。
 	/// </summary>
-	private void Execute(SourceProductionContext context, Compilation _, IEnumerable<INamedTypeSymbol> symbols) {
+	private DerivedTypeEntry? GetDerivedTypeEntry(GeneratorSyntaxContext ctx) {
+		if (ctx.Node is not ClassDeclarationSyntax cds) {
+			return null;
+		}
+		if (ctx.SemanticModel.GetDeclaredSymbol(cds) is not INamedTypeSymbol symbol) {
+			return null;
+		}
+
+		// [JsonConfigDerivedType] 属性を探す
+		string? discriminator = null;
+		foreach (var attr in symbol.GetAttributes()) {
+			if (attr.AttributeClass?.ToDisplayString() == this.DerivedTypeAttributeName) {
+				if (attr.ConstructorArguments.Length == 1 && attr.ConstructorArguments[0].Value is string s) {
+					discriminator = s;
+					break;
+				}
+			}
+		}
+		if (discriminator is null) {
+			return null;
+		}
+
+		// [GenerateR3JsonConfigDto] を持つ基底型を探す（インターフェース → 基底クラスの順で探索）
+		var baseTypeFullName = this.FindGenerateJsonDtoBaseType(symbol);
+		if (baseTypeFullName is null) {
+			return null;
+		}
+
+		return new DerivedTypeEntry(symbol.Name, discriminator, baseTypeFullName);
+	}
+
+	/// <summary>
+	/// 指定したシンボルが実装・継承する型のうち、[GenerateR3JsonConfigDto] を持つ最初の基底型の完全修飾名を返す。
+	/// 見つからない場合は null。
+	/// </summary>
+	private string? FindGenerateJsonDtoBaseType(INamedTypeSymbol symbol) {
+		// インターフェースを先に探索
+		foreach (var iface in symbol.AllInterfaces) {
+			if (this.HasGenerateJsonDtoAttribute(iface)) {
+				return iface.ToDisplayString();
+			}
+		}
+
+		// 基底クラスを探索
+		var baseType = symbol.BaseType;
+		while (baseType != null && baseType.SpecialType != SpecialType.System_Object) {
+			if (this.HasGenerateJsonDtoAttribute(baseType)) {
+				return baseType.ToDisplayString();
+			}
+			baseType = baseType.BaseType;
+		}
+
+		return null;
+	}
+
+	/// <summary>
+	/// 抽出されたシンボルと派生型エントリに対してソース生成処理を振り分ける。
+	/// </summary>
+	private void Execute(SourceProductionContext context, Compilation _, ImmutableArray<INamedTypeSymbol?> symbols, ImmutableArray<DerivedTypeEntry?> entries) {
+		// 派生型エントリを基底型 FQN でグループ化
+		var derivedMap = new Dictionary<string, List<(string TypeName, string StringKey)>>();
+		foreach (var entry in entries) {
+			if (entry is null) {
+				continue;
+			}
+			if (!derivedMap.TryGetValue(entry.BaseTypeFullName, out var list)) {
+				list = new List<(string TypeName, string StringKey)>();
+				derivedMap[entry.BaseTypeFullName] = list;
+			}
+			list.Add((entry.DerivedTypeName, entry.TypeDiscriminator));
+		}
+
 		foreach (var symbol in symbols) {
+			if (symbol is null) {
+				continue;
+			}
 			try {
-				this.GenerateForSymbol(context, symbol);
+				this.GenerateForSymbol(context, symbol, derivedMap);
 			} catch (Exception ex) {
 				context.ReportDiagnostic(Diagnostic.Create(new("RJG001", "JsonDtoGenerator Error", "{0}", "JsonDtoGenerator", DiagnosticSeverity.Warning, true), Location.None, ex.Message));
 			}
@@ -153,15 +293,16 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 	/// <summary>
 	/// 特定のシンボルに対してソースを生成。
 	/// </summary>
-	private void GenerateForSymbol(SourceProductionContext context, INamedTypeSymbol modelSymbol) {
+	private void GenerateForSymbol(SourceProductionContext context, INamedTypeSymbol modelSymbol, Dictionary<string, List<(string TypeName, string StringKey)>> derivedMap) {
 		var modelName = modelSymbol.Name;
 		var dtoName = modelName + "ForJson";
 
-		// ポリモーフィック対応の解析
-		var derivedTypes = this.GetDerivedTypes(modelSymbol);
+		// ポリモーフィック対応の解析: 事前収集された派生型マップから派生型リストを取得
+		var modelFullName = modelSymbol.ToDisplayString();
+		derivedMap.TryGetValue(modelFullName, out var derivedTypes);
 
 		// ケース1: ポリモーフィックな基底クラス/インターフェースの場合
-		if (derivedTypes.Count > 0) {
+		if (derivedTypes is { Count: > 0 }) {
 			var polymorphicCode = this.BuildPolymorphicDto(modelSymbol, modelName, dtoName, derivedTypes);
 			context.AddSource($"{dtoName}.g.cs", SourceText.From(polymorphicCode, Encoding.UTF8));
 			return;
@@ -173,23 +314,6 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 
 		var concreteCode = this.BuildConcreteDto(modelSymbol, modelName, dtoName, inheritance, props);
 		context.AddSource($"{dtoName}.g.cs", SourceText.From(concreteCode, Encoding.UTF8));
-	}
-
-	/// <summary>
-	/// [JsonConfigDerivedType] から派生型の情報を取得する。
-	/// </summary>
-	private List<(string TypeName, string StringKey)> GetDerivedTypes(INamedTypeSymbol modelSymbol) {
-		var derivedTypes = new List<(string TypeName, string StringKey)>();
-		foreach (var attr in modelSymbol.GetAttributes()) {
-			if (attr.AttributeClass?.ToDisplayString() == this.DerivedTypeAttributeName) {
-				if (attr.ConstructorArguments.Length == 2) {
-					if (attr.ConstructorArguments[0].Value is ITypeSymbol t && attr.ConstructorArguments[1].Value is string s) {
-						derivedTypes.Add((t.Name, s));
-					}
-				}
-			}
-		}
-		return derivedTypes;
 	}
 
 	/// <summary>
@@ -391,24 +515,24 @@ public partial class {{dtoName}} {
 
 			var setPropertyLogic = p.PropertyKind switch {
 				PropertyKind.ReactiveProperty => $$"""
-							if (json.{{p.Name}} is { } {{varName}}){
-								var e = {{varName}};
-								model.{{p.Name}}.Value = {{modelValue}};
-							}
+						if (json.{{p.Name}} is { } {{varName}}){
+							var e = {{varName}};
+							model.{{p.Name}}.Value = {{modelValue}};
+						}
 					""",
 				PropertyKind.ObservableList => $$"""
-							if (json.{{p.Name}} is { } {{varName}}) {
-								model.{{p.Name}}.Clear();
-								foreach (var e in {{varName}}) {
-									model.{{p.Name}}.Add({{modelValue}});
-								}
+						if (json.{{p.Name}} is { } {{varName}}) {
+							model.{{p.Name}}.Clear();
+							foreach (var e in {{varName}}) {
+								model.{{p.Name}}.Add({{modelValue}});
 							}
+						}
 					""",
 				PropertyKind.Plain => $$"""
-							if (json.{{p.Name}} is { } {{varName}}){
-								var e = {{varName}};
-								model.{{p.Name}} = {{modelValue}};
-							}
+						if (json.{{p.Name}} is { } {{varName}}){
+							var e = {{varName}};
+							model.{{p.Name}} = {{modelValue}};
+						}
 					""",
 				_ => throw new("Unknown property kind: " + p.TypeKind)
 			};

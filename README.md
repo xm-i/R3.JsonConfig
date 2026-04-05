@@ -20,7 +20,7 @@
 |------|------|------|
 | `GenerateR3JsonConfigDtoAttribute` | クラス / インターフェース | DTO 生成トリガー |
 | `ExcludePropertyAttribute` | プロパティ | DTO 生成から除外 |
-| `JsonConfigDerivedTypeAttribute` | クラス / インターフェース | ポリモーフィズム用の派生型登録 |
+| `JsonConfigDerivedTypeAttribute` | 具象クラス | ポリモーフィズム用の型識別子を登録 |
 
 ### ExcludePropertyAttribute
 特定のプロパティを DTO に含めたくない場合に使用:
@@ -159,16 +159,16 @@ public partial class ParentModelForJson {
 
 ```csharp
 [GenerateR3JsonConfigDto]
-[JsonConfigDerivedType(typeof(FilePluginConfig), "File")]
-[JsonConfigDerivedType(typeof(HttpPluginConfig), "Http")]
 public interface IPluginConfig { }
 
 [GenerateR3JsonConfigDto]
+[JsonConfigDerivedType("File")]
 public class FilePluginConfig : IPluginConfig {
     public string FilePath { get; set; } = "";
 }
 
 [GenerateR3JsonConfigDto]
+[JsonConfigDerivedType("Http")]
 public class HttpPluginConfig : IPluginConfig {
     public string Url { get; set; } = "";
 }

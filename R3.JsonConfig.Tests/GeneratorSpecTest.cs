@@ -1470,14 +1470,14 @@ public class GeneratorSpecTest {
 			namespace TestNamespace;
 
 			[GenerateR3JsonConfigDto]
-			[JsonConfigDerivedType(typeof(SubA), "A")]
-			[JsonConfigDerivedType(typeof(SubB), "B")]
 			public interface IBase { }
 
 			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType("A")]
 			public class SubA : IBase { public int A { get; set; } }
 
 			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType("B")]
 			public class SubB : IBase { public int B { get; set; } }
 			""";
 
@@ -1503,10 +1503,10 @@ public class GeneratorSpecTest {
 			namespace TestNamespace;
 
 			[GenerateR3JsonConfigDto]
-			[JsonConfigDerivedType(typeof(SubA), "A")]
 			public interface IBase { }
 
 			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType("A")]
 			public class SubA : IBase { public int A { get; set; } }
 			""";
 
@@ -1541,10 +1541,10 @@ public class GeneratorSpecTest {
 			namespace TestNamespace;
 
 			[GenerateR3JsonConfigDto]
-			[JsonConfigDerivedType(typeof(SubA), "A")]
 			public interface IBase { }
 
 			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType("A")]
 			public class SubA : IBase { public int A { get; set; } }
 
 			[GenerateR3JsonConfigDto]
@@ -1581,10 +1581,10 @@ public class GeneratorSpecTest {
 			namespace TestNamespace;
 
 			[GenerateR3JsonConfigDto]
-			[JsonConfigDerivedType(typeof(SubA), "A")]
 			public interface IBase { }
 
 			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType("A")]
 			public class SubA : IBase { public int A { get; set; } }
 
 			[GenerateR3JsonConfigDto]
@@ -1629,14 +1629,14 @@ public class GeneratorSpecTest {
 			namespace TestNamespace;
 
 			[GenerateR3JsonConfigDto]
-			[JsonConfigDerivedType(typeof(SubA), "A")]
-			[JsonConfigDerivedType(typeof(SubB), "B")]
 			public interface IBase { }
 
 			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType("A")]
 			public class SubA : IBase { public int A { get; set; } }
 
 			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType("B")]
 			public class SubB : IBase { public string B { get; set; } = ""; }
 
 			[GenerateR3JsonConfigDto]
@@ -1683,10 +1683,10 @@ public class GeneratorSpecTest {
 			namespace TestNamespace;
 
 			[GenerateR3JsonConfigDto]
-			[JsonConfigDerivedType(typeof(SubA), "A")]
 			public interface IBase { }
 
 			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType("A")]
 			public class SubA : IBase { public int A { get; set; } }
 
 			[GenerateR3JsonConfigDto]

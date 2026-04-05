@@ -1,8 +1,8 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using ObservableCollections;
 using R3;
 using R3.JsonConfig.Attributes;
-using ObservableCollections;
 using Shouldly;
 using Xunit;
 
@@ -11,19 +11,27 @@ namespace R3.JsonConfig.Tests;
 [GenerateR3JsonConfigDto]
 public class CircularParent {
 	public string Name { get; set; } = "";
-	public CircularChild? Child { get; set; }
+	public CircularChild? Child {
+		get; set;
+	}
 }
 
 [GenerateR3JsonConfigDto]
 public class CircularChild {
 	public string Name { get; set; } = "";
-	public CircularParent? Parent { get; set; }
+	public CircularParent? Parent {
+		get; set;
+	}
 }
 
 [GenerateR3JsonConfigDto]
 public class DiamondRoot {
-	public DiamondNode? Node1 { get; set; }
-	public DiamondNode? Node2 { get; set; }
+	public DiamondNode? Node1 {
+		get; set;
+	}
+	public DiamondNode? Node2 {
+		get; set;
+	}
 }
 
 [GenerateR3JsonConfigDto]
@@ -38,7 +46,9 @@ public class CollectionCircularRoot {
 
 [GenerateR3JsonConfigDto]
 public class CollectionCircularItem {
-	public CollectionCircularRoot? Root { get; set; }
+	public CollectionCircularRoot? Root {
+		get; set;
+	}
 }
 
 public class CircularReferenceE2ETest {

@@ -14,14 +14,16 @@ public sealed class ReferenceTracker {
 	/// 未登録の場合は新しい ID を発行して登録し、null を返します。
 	/// </summary>
 	public string? GetOrAddId(object? model) {
-		if (model is null) return null;
+		if (model is null) {
+			return null;
+		}
 
-		if (_objectToId.TryGetValue(model, out var id)) {
+		if (this._objectToId.TryGetValue(model, out var id)) {
 			return id;
 		}
 
-		id = (_nextId++).ToString();
-		_objectToId.Add(model, id);
+		id = this._nextId++.ToString();
+		this._objectToId.Add(model, id);
 		return null;
 	}
 
@@ -29,11 +31,16 @@ public sealed class ReferenceTracker {
 	/// 登録済みのインスタンスの ID を取得します。
 	/// </summary>
 	public string GetId(object model) {
-		return _objectToId[model];
+		return this._objectToId[model];
 	}
 
 	private sealed class ReferenceEqualityComparer : IEqualityComparer<object> {
-		bool IEqualityComparer<object>.Equals(object? x, object? y) => ReferenceEquals(x, y);
-		int IEqualityComparer<object>.GetHashCode(object obj) => RuntimeHelpers.GetHashCode(obj);
+		bool IEqualityComparer<object>.Equals(object? x, object? y) {
+			return ReferenceEquals(x, y);
+		}
+
+		int IEqualityComparer<object>.GetHashCode(object obj) {
+			return RuntimeHelpers.GetHashCode(obj);
+		}
 	}
 }

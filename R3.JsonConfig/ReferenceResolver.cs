@@ -10,14 +10,14 @@ public sealed class ReferenceResolver {
 	/// 指定した ID でインスタンスを登録します。
 	/// </summary>
 	public void Add(string id, object model) {
-		_idToObject[id] = model;
+		this._idToObject[id] = model;
 	}
 
 	/// <summary>
 	/// 指定した ID に対応するインスタンスを解決します。
 	/// </summary>
 	public T? Resolve<T>(string id) where T : class {
-		if (_idToObject.TryGetValue(id, out var model)) {
+		if (this._idToObject.TryGetValue(id, out var model)) {
 			return (T)model;
 		}
 		return null;

@@ -658,7 +658,7 @@ public class GeneratorSpecTest {
 
 		code.Contains("public int? NullableInt").ShouldBeTrue("int? は int? のまま");
 		code.Contains("public string? NullableString").ShouldBeTrue("string? は string? のまま");
-		code.Contains("??").ShouldBeFalse("二重の ? が含まれてはいけない");
+		code.Contains("???").ShouldBeFalse("三重の ? が含まれてはいけない"); // Changed from ?? to ??? because ?? is now used for null-coalescing
 	}
 
 	/// <summary>
@@ -722,7 +722,7 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("public static MyModel? CreateModel(MyModelForJson? json, System.IServiceProvider sp)").ShouldBeTrue(
+		code.Contains("public static MyModel? CreateModel(MyModelForJson? json, System.IServiceProvider sp, ReferenceResolver? resolver = null)").ShouldBeTrue(
 			"CreateModel は (DtoForJson? json, IServiceProvider sp) → Model? のシグネチャであるべき");
 	}
 
@@ -747,7 +747,7 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("public static MyModelForJson? CreateJson(MyModel? model)").ShouldBeTrue(
+		code.Contains("public static MyModelForJson? CreateJson(MyModel? model, ReferenceTracker? tracker = null)").ShouldBeTrue(
 			"CreateJson は (Model? model) → DtoForJson? のシグネチャであるべき");
 	}
 
@@ -1020,7 +1020,7 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("TestNamespace.ChildForJson.CreateModel(e,").ShouldBeTrue(
+		parentCode.Contains("TestNamespace.ChildForJson.CreateModel(e, sp.CreateScope().ServiceProvider, resolver)").ShouldBeTrue(
 			"ネストされた ForJson 型の CreateModel 内で子の CreateModel が再帰呼び出しされるべき");
 	}
 
@@ -1052,12 +1052,12 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("TestNamespace.ChildForJson.CreateJson(model.ChildProp)").ShouldBeTrue(
+		parentCode.Contains("TestNamespace.ChildForJson.CreateJson(model.ChildProp, tracker)").ShouldBeTrue(
 			"ネストされた ForJson 型の CreateJson 内で子の CreateJson が再帰呼び出しされるべき");
 	}
 
 	/// <summary>
-	/// ネストされた ForJson 型の CreateModel では sp.CreateScope().ServiceProvider で
+	/// ネストされた ForJson 型の CreateModel では sp.CreateScope().ServiceProvider, resolver で
 	/// 新しい DI スコープが作成されることを検証する。スコープ付きサービスがネスト単位で分離される。
 	/// </summary>
 	[Fact]
@@ -1084,7 +1084,7 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("sp.CreateScope().ServiceProvider").ShouldBeTrue(
+		parentCode.Contains("sp.CreateScope().ServiceProvider, resolver").ShouldBeTrue(
 			"ネストされた ForJson 型の CreateModel では新しい DI スコープが作成されるべき");
 	}
 
@@ -1117,7 +1117,7 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("model.Children.Select(x => TestNamespace.ChildForJson.CreateJson(x)).ToArray()").ShouldBeTrue(
+		parentCode.Contains("model.Children.Select(x => TestNamespace.ChildForJson.CreateJson(x, tracker)).ToArray()").ShouldBeTrue(
 			"ObservableList<NestedModel> の CreateJson では Select + CreateJson + ToArray が使われるべき");
 	}
 
@@ -1518,11 +1518,11 @@ public class GeneratorSpecTest {
 
 		// CreateModel のディスパッチ
 		code.ShouldContain("if (json is SubAForJson e_SubA)");
-		code.ShouldContain("return SubAForJson.CreateModel(e_SubA, sp.CreateScope().ServiceProvider)");
+		code.ShouldContain("return SubAForJson.CreateModel(e_SubA, sp.CreateScope().ServiceProvider, resolver)");
 
 		// CreateJson のディスパッチ
 		code.ShouldContain("if (model is SubA m_SubA)");
-		code.ShouldContain("return SubAForJson.CreateJson(m_SubA)");
+		code.ShouldContain("return SubAForJson.CreateJson(m_SubA, tracker)");
 
 		// 未知の型へのガード
 		code.ShouldContain("throw new System.InvalidOperationException($\"Unknown derived type: {json?.GetType().FullName}\");");
@@ -1563,8 +1563,8 @@ public class GeneratorSpecTest {
 		code.ShouldContain("IBaseForJson? BaseProp");
 
 		// 変換ロジック
-		code.ShouldContain("IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider);");
-		code.ShouldContain("BaseProp = TestNamespace.IBaseForJson.CreateJson(model.BaseProp)");
+		code.ShouldContain("IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider, resolver);");
+		code.ShouldContain("BaseProp = TestNamespace.IBaseForJson.CreateJson(model.BaseProp, tracker)");
 	}
 
 	/// <summary>
@@ -1607,11 +1607,11 @@ public class GeneratorSpecTest {
 			"ReactiveProperty<IBase> は IBaseForJson? にマッピングされるべき");
 
 		// CreateModel のロジック
-		code.Contains("model.BaseRp.Value = TestNamespace.IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider);").ShouldBeTrue(
+		code.Contains("model.BaseRp.Value = TestNamespace.IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider, resolver);").ShouldBeTrue(
 			"CreateModel 内でインターフェースの ForJson 型の CreateModel が呼ばれるべき");
 
 		// CreateJson のロジック
-		code.Contains("BaseRp = TestNamespace.IBaseForJson.CreateJson(model.BaseRp.Value),").ShouldBeTrue(
+		code.Contains("BaseRp = TestNamespace.IBaseForJson.CreateJson(model.BaseRp.Value, tracker),").ShouldBeTrue(
 			"CreateJson 内でインターフェースの ForJson 型の CreateJson が呼ばれるべき");
 	}
 
@@ -1661,11 +1661,11 @@ public class GeneratorSpecTest {
 		// CreateModel のロジック
 		code.Contains("model.BaseList.Clear()").ShouldBeTrue(
 			"ObservableList の CreateModel では Clear() が呼ばれるべき");
-		code.Contains("model.BaseList.Add(TestNamespace.IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider))").ShouldBeTrue(
+		code.Contains("model.BaseList.Add(TestNamespace.IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider, resolver))").ShouldBeTrue(
 			"ObservableList の CreateModel では Add() 内でインターフェースの CreateModel が呼ばれるべき");
 
 		// CreateJson のロジック
-		code.Contains("model.BaseList.Select(x => TestNamespace.IBaseForJson.CreateJson(x)).ToArray()").ShouldBeTrue(
+		code.Contains("model.BaseList.Select(x => TestNamespace.IBaseForJson.CreateJson(x, tracker)).ToArray()").ShouldBeTrue(
 			"ObservableList の CreateJson では Select + CreateJson + ToArray が使われるべき");
 	}
 

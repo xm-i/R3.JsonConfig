@@ -147,9 +147,9 @@ public class ParentConfig {
 
 		var parentGeneratedSource = generatedSources.First(x => x.HintName == "ParentConfigForJson.g.cs").SourceText.ToString();
 
-		parentGeneratedSource.Contains("public TestNamespace.ChildConfigForJson? DirectChild").ShouldBeTrue("ネストされたクラスがForJson付きの型に変換される必要があります");
-		parentGeneratedSource.Contains("public TestNamespace.ChildConfigForJson? ReactiveChild").ShouldBeTrue("ReactiveProperty内のネストされたクラスがForJson付きの型に変換される必要があります");
-		parentGeneratedSource.Contains("public TestNamespace.ChildConfigForJson[]? ChildList").ShouldBeTrue("ObservableList内のネストされたクラスがForJson付きの配列型に変換される必要があります");
+		parentGeneratedSource.Contains("public global::TestNamespace.ChildConfigForJson? DirectChild").ShouldBeTrue("ネストされたクラスがForJson付きの型に変換される必要があります");
+		parentGeneratedSource.Contains("public global::TestNamespace.ChildConfigForJson? ReactiveChild").ShouldBeTrue("ReactiveProperty内のネストされたクラスがForJson付きの型に変換される必要があります");
+		parentGeneratedSource.Contains("public global::TestNamespace.ChildConfigForJson[]? ChildList").ShouldBeTrue("ObservableList内のネストされたクラスがForJson付きの配列型に変換される必要があります");
 	}
 
 
@@ -235,10 +235,10 @@ public class MethodCheckConfig {
 		var generatedSource = generatedSources.First().SourceText.ToString();
 
 		// CreateModel メソッドの存在とシグネチャ検証
-		generatedSource.Contains("public static MethodCheckConfig? CreateModel(MethodCheckConfigForJson? json, System.IServiceProvider sp, ReferenceResolver? resolver = null)").ShouldBeTrue("CreateModelメソッドが生成される必要があります");
+		generatedSource.Contains("public static global::TestNamespace.MethodCheckConfig? CreateModel(global::TestNamespace.MethodCheckConfigForJson? json, global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver? resolver = null)").ShouldBeTrue("CreateModelメソッドが生成される必要があります");
 
 		// CreateJson メソッドの存在とシグネチャ検証
-		generatedSource.Contains("public static MethodCheckConfigForJson? CreateJson(MethodCheckConfig? model, ReferenceTracker? tracker = null)").ShouldBeTrue("CreateJsonメソッドが生成される必要があります");
+		generatedSource.Contains("public static global::TestNamespace.MethodCheckConfigForJson? CreateJson(global::TestNamespace.MethodCheckConfig? model, global::R3.JsonConfig.ReferenceTracker? tracker = null)").ShouldBeTrue("CreateJsonメソッドが生成される必要があります");
 
 		// CreateModel 内で Value をセットするロジックの存在確認
 		generatedSource.Contains("if (json.Value is { } notNullValue)").ShouldBeTrue("CreateModel内で値の割り当てロジックが生成される必要があります");

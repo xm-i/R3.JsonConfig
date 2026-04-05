@@ -227,6 +227,10 @@ public class ParentModel {
 以下は `DefaultJsonDtoGenerator` の詳細な動作仕様です。
 「自分のモデルにどう属性を付ければ、どのような DTO が生成されるか」を把握するためのリファレンスとしてお使いください。
 
+> [!NOTE]
+> 名前空間やクラス名、拡張メソッド等の名前衝突を完全に防止するため、生成されるコード内のすべての型参照とメソッド呼び出しは、`global::` プレフィックス付きの完全修飾名および静的メソッド形式で出力されます。
+> これにより、ユーザー側の `global using` 等の環境設定に左右されない堅牢なソース生成を実現しています。
+
 ### 1. 対象クラスの条件
 
 ジェネレータが処理するのは、以下の **すべて** を満たすクラスです。
@@ -395,11 +399,11 @@ public static ParentModel? CreateModel(ParentModelForJson? json, IServiceProvide
 | 通常プロパティ | `model.Prop = value;` で直接代入 |
 | `ReactiveProperty<T>` | `model.Prop.Value = value;` で Value を更新 |
 | `ObservableList<T>` | `model.Prop.Clear()` → `model.Prop.Add(item)` でリストを再構築 |
-| ネストされた ForJson 型 | 代入値が `TForJson.CreateModel(e, sp.CreateScope().ServiceProvider)` に置き換わる |
+| ネストされた ForJson 型 | 代入値が `TForJson.CreateModel(e, ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider)` に置き換わる |
 
 > **DI の利用について**: `CreateModel` は `IServiceProvider` を引数に受け取ります。  
 > これにより、モデルのインスタンス生成を DI コンテナに委譲できます（コンストラクタインジェクションが必要なモデルに対応）。  
-> ネストされたモデルの変換時には `sp.CreateScope().ServiceProvider` で**新しいスコープ**が作成されます。
+> ネストされたモデルの変換時には `ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider` で**新しいスコープ**が作成されます。
 
 #### 5.2 `CreateJson` — ドメインモデル → JSON DTO
 
@@ -420,10 +424,10 @@ public static ParentModelForJson? CreateJson(ParentModel? model, ReferenceTracke
 |--------------|-------|
 | 通常プロパティ | `model.Prop` (そのまま) |
 | `ReactiveProperty<T>` | `model.Prop.Value` |
-| `ObservableList<T>` | `model.Prop.ToArray()` |
+| `ObservableList<T>` | `Enumerable.ToArray(model.Prop)` |
 | ネストされた ForJson 型 (通常) | `TForJson.CreateJson(model.Prop)` |
 | ネストされた ForJson 型 (ReactiveProperty) | `TForJson.CreateJson(model.Prop.Value)` |
-| ネストされた ForJson 型 (ObservableList) | `model.Prop.Select(x => TForJson.CreateJson(x)).ToArray()` |
+| ネストされた ForJson 型 (ObservableList) | `Enumerable.ToArray(Enumerable.Select(model.Prop, x => TForJson.CreateJson(x)))` |
 
 #### 5.3 オブジェクトの同一性保持と参照解決
 

@@ -526,7 +526,7 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("TestNamespace.ChildForJson? ChildProp").ShouldBeTrue(
+		parentCode.Contains("global::TestNamespace.ChildForJson? ChildProp").ShouldBeTrue(
 			"ネストされた [GenerateR3JsonConfigDto] 付きモデルは ForJson 型に変換されるべき");
 	}
 
@@ -559,7 +559,7 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("TestNamespace.ChildForJson? ChildRp").ShouldBeTrue(
+		parentCode.Contains("global::TestNamespace.ChildForJson? ChildRp").ShouldBeTrue(
 			"ReactiveProperty<NestedModel> は NestedModelForJson? に変換されるべき");
 	}
 
@@ -592,7 +592,7 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("TestNamespace.ChildForJson[]? Children").ShouldBeTrue(
+		parentCode.Contains("global::TestNamespace.ChildForJson[]? Children").ShouldBeTrue(
 			"ObservableList<NestedModel> は NestedModelForJson[]? に変換されるべき");
 	}
 
@@ -628,11 +628,11 @@ public class GeneratorSpecTest {
 			.SourceText.ToString();
 
 		// [GenerateR3JsonConfigDto] がない型は ForJson 化されず元の型のまま
-		code.Contains("TestNamespace.PlainChild? DirectProp").ShouldBeTrue(
+		code.Contains("global::TestNamespace.PlainChild? DirectProp").ShouldBeTrue(
 			"属性なし通常プロパティは PlainChild? のまま");
-		code.Contains("TestNamespace.PlainChild? RpProp").ShouldBeTrue(
+		code.Contains("global::TestNamespace.PlainChild? RpProp").ShouldBeTrue(
 			"属性なし ReactiveProperty は PlainChild? のまま");
-		code.Contains("TestNamespace.PlainChild[]? ListProp").ShouldBeTrue(
+		code.Contains("global::TestNamespace.PlainChild[]? ListProp").ShouldBeTrue(
 			"属性なし ObservableList は PlainChild[]? のまま");
 	}
 
@@ -722,7 +722,7 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("public static MyModel? CreateModel(MyModelForJson? json, System.IServiceProvider sp, ReferenceResolver? resolver = null)").ShouldBeTrue(
+		code.Contains("public static global::TestNamespace.MyModel? CreateModel(global::TestNamespace.MyModelForJson? json, global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver? resolver = null)").ShouldBeTrue(
 			"CreateModel は (DtoForJson? json, IServiceProvider sp) → Model? のシグネチャであるべき");
 	}
 
@@ -747,7 +747,7 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("public static MyModelForJson? CreateJson(MyModel? model, ReferenceTracker? tracker = null)").ShouldBeTrue(
+		code.Contains("public static global::TestNamespace.MyModelForJson? CreateJson(global::TestNamespace.MyModel? model, global::R3.JsonConfig.ReferenceTracker? tracker = null)").ShouldBeTrue(
 			"CreateJson は (Model? model) → DtoForJson? のシグネチャであるべき");
 	}
 
@@ -771,7 +771,7 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("sp.GetRequiredService<MyModel>()").ShouldBeTrue(
+		code.Contains("global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<global::TestNamespace.MyModel>(sp)").ShouldBeTrue(
 			"CreateModel は IServiceProvider.GetRequiredService でモデルを取得すべき");
 	}
 
@@ -795,9 +795,9 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("[return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(json))]").ShouldBeTrue(
+		code.Contains("[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(json))]").ShouldBeTrue(
 			"CreateModel に NotNullIfNotNull(json) が付与されるべき");
-		code.Contains("[return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(model))]").ShouldBeTrue(
+		code.Contains("[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(model))]").ShouldBeTrue(
 			"CreateJson に NotNullIfNotNull(model) が付与されるべき");
 	}
 
@@ -988,7 +988,7 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("Items = model.Items.ToArray(),").ShouldBeTrue(
+		code.Contains("Items = global::System.Linq.Enumerable.ToArray(model.Items),").ShouldBeTrue(
 			"CreateJson で ObservableList は .ToArray() で配列に変換されるべき");
 	}
 
@@ -1020,7 +1020,7 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("TestNamespace.ChildForJson.CreateModel(e, sp.CreateScope().ServiceProvider, resolver)").ShouldBeTrue(
+		parentCode.Contains("global::TestNamespace.ChildForJson.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver)").ShouldBeTrue(
 			"ネストされた ForJson 型の CreateModel 内で子の CreateModel が再帰呼び出しされるべき");
 	}
 
@@ -1052,7 +1052,7 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("TestNamespace.ChildForJson.CreateJson(model.ChildProp, tracker)").ShouldBeTrue(
+		parentCode.Contains("global::TestNamespace.ChildForJson.CreateJson(model.ChildProp, tracker)").ShouldBeTrue(
 			"ネストされた ForJson 型の CreateJson 内で子の CreateJson が再帰呼び出しされるべき");
 	}
 
@@ -1084,7 +1084,7 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("sp.CreateScope().ServiceProvider, resolver").ShouldBeTrue(
+		parentCode.Contains("global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver").ShouldBeTrue(
 			"ネストされた ForJson 型の CreateModel では新しい DI スコープが作成されるべき");
 	}
 
@@ -1117,7 +1117,7 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("model.Children.Select(x => TestNamespace.ChildForJson.CreateJson(x, tracker)).ToArray()").ShouldBeTrue(
+		parentCode.Contains("global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(model.Children, x => global::TestNamespace.ChildForJson.CreateJson(x, tracker)))").ShouldBeTrue(
 			"ObservableList<NestedModel> の CreateJson では Select + CreateJson + ToArray が使われるべき");
 	}
 
@@ -1223,17 +1223,17 @@ public class GeneratorSpecTest {
 		// ReactiveProperty
 		fullCode.Contains("public string? RpStr").ShouldBeTrue("ReactiveProperty<string> → string?");
 		fullCode.Contains("public int? RpInt").ShouldBeTrue("ReactiveProperty<int> → int?");
-		fullCode.Contains("TestNamespace.ChildModelForJson? RpChild").ShouldBeTrue(
+		fullCode.Contains("global::TestNamespace.ChildModelForJson? RpChild").ShouldBeTrue(
 			"ReactiveProperty<ChildModel> → ChildModelForJson?");
 
 		// ObservableList
 		fullCode.Contains("public int[]? OlInt").ShouldBeTrue("ObservableList<int> → int[]?");
 		fullCode.Contains("public string[]? OlStr").ShouldBeTrue("ObservableList<string> → string[]?");
-		fullCode.Contains("TestNamespace.ChildModelForJson[]? OlChild").ShouldBeTrue(
+		fullCode.Contains("global::TestNamespace.ChildModelForJson[]? OlChild").ShouldBeTrue(
 			"ObservableList<ChildModel> → ChildModelForJson[]?");
 
 		// ネストされた通常プロパティ
-		fullCode.Contains("TestNamespace.ChildModelForJson? NestedChild").ShouldBeTrue(
+		fullCode.Contains("global::TestNamespace.ChildModelForJson? NestedChild").ShouldBeTrue(
 			"ChildModel → ChildModelForJson?");
 
 		// 除外
@@ -1243,8 +1243,8 @@ public class GeneratorSpecTest {
 		fullCode.Contains("NoSetter").ShouldBeFalse("public setter なし通常プロパティは除外されるべき");
 
 		// CreateModel / CreateJson の両方が存在する
-		fullCode.Contains("public static FullModel? CreateModel(").ShouldBeTrue("CreateModel が生成されるべき");
-		fullCode.Contains("public static FullModelForJson? CreateJson(").ShouldBeTrue("CreateJson が生成されるべき");
+		fullCode.Contains("public static global::TestNamespace.FullModel? CreateModel(").ShouldBeTrue("CreateModel が生成されるべき");
+		fullCode.Contains("public static global::TestNamespace.FullModelForJson? CreateJson(").ShouldBeTrue("CreateJson が生成されるべき");
 	}
 
 	#endregion
@@ -1275,7 +1275,7 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("TestNamespace.HexColor? ColorRp").ShouldBeTrue(
+		code.Contains("global::TestNamespace.HexColor? ColorRp").ShouldBeTrue(
 			"ReactiveProperty<HexColor?> は HexColor? にマッピングされるべき（ForJson 化されない）");
 		code.Contains("HexColorForJson").ShouldBeFalse(
 			"[GenerateR3JsonConfigDto] がない型は ForJson 化されてはいけない");
@@ -1305,7 +1305,7 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("TestNamespace.HexColor?[]? ColorList").ShouldBeTrue(
+		code.Contains("global::TestNamespace.HexColor?[]? ColorList").ShouldBeTrue(
 			"ObservableList<HexColor?> は HexColor?[]? にマッピングされるべき（ForJson 化されない）");
 		code.Contains("HexColorForJson").ShouldBeFalse(
 			"[GenerateR3JsonConfigDto] がない型は ForJson 化されてはいけない");
@@ -1333,8 +1333,8 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("TestNamespace.HexColor? ColorProp").ShouldBeTrue(
-			"HexColor? 通常プロパティは HexColor? のままマッピングされるべき");
+		code.Contains("global::TestNamespace.HexColor? ColorProp").ShouldBeTrue(
+			"HexColor? 通常プロパティ は HexColor? のままマッピングされるべき");
 		code.Contains("HexColorForJson").ShouldBeFalse(
 			"[GenerateR3JsonConfigDto] がない型は ForJson 化されてはいけない");
 	}
@@ -1417,7 +1417,7 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("ColorList = model.ColorList.ToArray(),").ShouldBeTrue(
+		code.Contains("ColorList = global::System.Linq.Enumerable.ToArray(model.ColorList),").ShouldBeTrue(
 			"CreateJson で ObservableList<HexColor?> は .ToArray() で配列に変換されるべき");
 	}
 
@@ -1449,9 +1449,9 @@ public class GeneratorSpecTest {
 		diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty();
 		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
 
-		code.Contains("TestNamespace.HexColor? ColorRp").ShouldBeTrue("ReactiveProperty<HexColor?> → HexColor?");
-		code.Contains("TestNamespace.HexColor?[]? ColorList").ShouldBeTrue("ObservableList<HexColor?> → HexColor?[]?");
-		code.Contains("TestNamespace.HexColor? ColorProp").ShouldBeTrue("HexColor? 通常プロパティ → HexColor?");
+		code.Contains("global::TestNamespace.HexColor? ColorRp").ShouldBeTrue("ReactiveProperty<HexColor?> → HexColor?");
+		code.Contains("global::TestNamespace.HexColor?[]? ColorList").ShouldBeTrue("ObservableList<HexColor?> → HexColor?[]?");
+		code.Contains("global::TestNamespace.HexColor? ColorProp").ShouldBeTrue("HexColor? 通常プロパティ → HexColor?");
 	}
 
 	#endregion
@@ -1487,9 +1487,9 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "IBaseForJson.g.cs")
 			.SourceText.ToString();
 
-		code.ShouldContain("[System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = \"___Type\")]");
-		code.ShouldContain("[System.Text.Json.Serialization.JsonDerivedType(typeof(SubAForJson), \"A\")]");
-		code.ShouldContain("[System.Text.Json.Serialization.JsonDerivedType(typeof(SubBForJson), \"B\")]");
+		code.ShouldContain("[global::System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = \"___Type\")]");
+		code.ShouldContain("[global::System.Text.Json.Serialization.JsonDerivedType(typeof(global::TestNamespace.SubAForJson), \"A\")]");
+		code.ShouldContain("[global::System.Text.Json.Serialization.JsonDerivedType(typeof(global::TestNamespace.SubBForJson), \"B\")]");
 	}
 
 	/// <summary>
@@ -1517,15 +1517,15 @@ public class GeneratorSpecTest {
 			.SourceText.ToString();
 
 		// CreateModel のディスパッチ
-		code.ShouldContain("if (json is SubAForJson e_SubA)");
-		code.ShouldContain("return SubAForJson.CreateModel(e_SubA, sp.CreateScope().ServiceProvider, resolver)");
+		code.ShouldContain("if (json is global::TestNamespace.SubAForJson e_global_TestNamespace_SubA)");
+		code.ShouldContain("return global::TestNamespace.SubAForJson.CreateModel(e_global_TestNamespace_SubA, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver)");
 
 		// CreateJson のディスパッチ
-		code.ShouldContain("if (model is SubA m_SubA)");
-		code.ShouldContain("return SubAForJson.CreateJson(m_SubA, tracker)");
+		code.ShouldContain("if (model is global::TestNamespace.SubA m_global_TestNamespace_SubA)");
+		code.ShouldContain("return global::TestNamespace.SubAForJson.CreateJson(m_global_TestNamespace_SubA, tracker)");
 
 		// 未知の型へのガード
-		code.ShouldContain("throw new System.InvalidOperationException($\"Unknown derived type: {json?.GetType().FullName}\");");
+		code.ShouldContain("throw new global::System.InvalidOperationException($\"Unknown derived type: {json?.GetType().FullName}\");");
 	}
 
 	/// <summary>
@@ -1560,11 +1560,11 @@ public class GeneratorSpecTest {
 			.SourceText.ToString();
 
 		// プロパティ型
-		code.ShouldContain("IBaseForJson? BaseProp");
+		code.ShouldContain("global::TestNamespace.IBaseForJson? BaseProp");
 
 		// 変換ロジック
-		code.ShouldContain("IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider, resolver);");
-		code.ShouldContain("BaseProp = TestNamespace.IBaseForJson.CreateJson(model.BaseProp, tracker)");
+		code.ShouldContain("global::TestNamespace.IBaseForJson.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver);");
+		code.ShouldContain("BaseProp = global::TestNamespace.IBaseForJson.CreateJson(model.BaseProp, tracker)");
 	}
 
 	/// <summary>
@@ -1603,15 +1603,15 @@ public class GeneratorSpecTest {
 			.SourceText.ToString();
 
 		// プロパティ型
-		code.Contains("TestNamespace.IBaseForJson? BaseRp").ShouldBeTrue(
+		code.Contains("global::TestNamespace.IBaseForJson? BaseRp").ShouldBeTrue(
 			"ReactiveProperty<IBase> は IBaseForJson? にマッピングされるべき");
 
 		// CreateModel のロジック
-		code.Contains("model.BaseRp.Value = TestNamespace.IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider, resolver);").ShouldBeTrue(
+		code.Contains("model.BaseRp.Value = global::TestNamespace.IBaseForJson.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver);").ShouldBeTrue(
 			"CreateModel 内でインターフェースの ForJson 型の CreateModel が呼ばれるべき");
 
 		// CreateJson のロジック
-		code.Contains("BaseRp = TestNamespace.IBaseForJson.CreateJson(model.BaseRp.Value, tracker),").ShouldBeTrue(
+		code.Contains("BaseRp = global::TestNamespace.IBaseForJson.CreateJson(model.BaseRp.Value, tracker),").ShouldBeTrue(
 			"CreateJson 内でインターフェースの ForJson 型の CreateJson が呼ばれるべき");
 	}
 
@@ -1655,17 +1655,17 @@ public class GeneratorSpecTest {
 			.SourceText.ToString();
 
 		// プロパティ型
-		code.Contains("TestNamespace.IBaseForJson[]? BaseList").ShouldBeTrue(
+		code.Contains("global::TestNamespace.IBaseForJson[]? BaseList").ShouldBeTrue(
 			"ObservableList<IBase> は IBaseForJson[]? にマッピングされるべき");
 
 		// CreateModel のロジック
 		code.Contains("model.BaseList.Clear()").ShouldBeTrue(
 			"ObservableList の CreateModel では Clear() が呼ばれるべき");
-		code.Contains("model.BaseList.Add(TestNamespace.IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider, resolver))").ShouldBeTrue(
+		code.Contains("model.BaseList.Add(global::TestNamespace.IBaseForJson.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver))").ShouldBeTrue(
 			"ObservableList の CreateModel では Add() 内でインターフェースの CreateModel が呼ばれるべき");
 
 		// CreateJson のロジック
-		code.Contains("model.BaseList.Select(x => TestNamespace.IBaseForJson.CreateJson(x, tracker)).ToArray()").ShouldBeTrue(
+		code.Contains("global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(model.BaseList, x => global::TestNamespace.IBaseForJson.CreateJson(x, tracker)))").ShouldBeTrue(
 			"ObservableList の CreateJson では Select + CreateJson + ToArray が使われるべき");
 	}
 
@@ -1705,11 +1705,11 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ContainerForJson.g.cs")
 			.SourceText.ToString();
 
-		code.Contains("TestNamespace.IBaseForJson? PlainBase").ShouldBeTrue(
+		code.Contains("global::TestNamespace.IBaseForJson? PlainBase").ShouldBeTrue(
 			"通常プロパティ IBase → IBaseForJson?");
-		code.Contains("TestNamespace.IBaseForJson? RpBase").ShouldBeTrue(
+		code.Contains("global::TestNamespace.IBaseForJson? RpBase").ShouldBeTrue(
 			"ReactiveProperty<IBase> → IBaseForJson?");
-		code.Contains("TestNamespace.IBaseForJson[]? ListBase").ShouldBeTrue(
+		code.Contains("global::TestNamespace.IBaseForJson[]? ListBase").ShouldBeTrue(
 			"ObservableList<IBase> → IBaseForJson[]?");
 	}
 

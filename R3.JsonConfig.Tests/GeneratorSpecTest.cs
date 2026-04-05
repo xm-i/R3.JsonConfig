@@ -1246,4 +1246,211 @@ public class GeneratorSpecTest {
 	}
 
 	#endregion
+
+	#region Custom type with JsonConverter
+
+	/// <summary>
+	/// [GenerateR3JsonConfigDto] を持たないカスタム型を ReactiveProperty&lt;T?&gt; で保持する場合、
+	/// DTO 側では T? のままマッピングされることを検証する（ForJson 化されない）。
+	/// Color など JsonConverter で扱う型はこのルートを通る。
+	/// </summary>
+	[Fact]
+	public async Task CustomType_WithoutAttribute_IsMappedTo_NullableT_AsReactiveProperty() {
+		var source = """
+			using R3;
+			using R3.JsonConfig.Attributes;
+
+			namespace TestNamespace;
+
+			public struct HexColor { }
+
+			[GenerateR3JsonConfigDto]
+			public class Model {
+				public ReactiveProperty<HexColor?> ColorRp { get; } = new();
+			}
+			""";
+
+		var (runResult, _) = await TestHelper.RunGenerator(source);
+		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
+
+		code.Contains("TestNamespace.HexColor? ColorRp").ShouldBeTrue(
+			"ReactiveProperty<HexColor?> は HexColor? にマッピングされるべき（ForJson 化されない）");
+		code.Contains("HexColorForJson").ShouldBeFalse(
+			"[GenerateR3JsonConfigDto] がない型は ForJson 化されてはいけない");
+	}
+
+	/// <summary>
+	/// [GenerateR3JsonConfigDto] を持たないカスタム型を ObservableList&lt;T?&gt; で保持する場合、
+	/// DTO 側では T?[]? のままマッピングされることを検証する（ForJson 化されない）。
+	/// Color など JsonConverter で扱う型はこのルートを通る。
+	/// </summary>
+	[Fact]
+	public async Task CustomType_WithoutAttribute_IsMappedTo_NullableTArray_AsObservableList() {
+		var source = """
+			using R3.JsonConfig.Attributes;
+			using ObservableCollections;
+
+			namespace TestNamespace;
+
+			public struct HexColor { }
+
+			[GenerateR3JsonConfigDto]
+			public class Model {
+				public ObservableList<HexColor?> ColorList { get; } = new();
+			}
+			""";
+
+		var (runResult, _) = await TestHelper.RunGenerator(source);
+		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
+
+		code.Contains("TestNamespace.HexColor?[]? ColorList").ShouldBeTrue(
+			"ObservableList<HexColor?> は HexColor?[]? にマッピングされるべき（ForJson 化されない）");
+		code.Contains("HexColorForJson").ShouldBeFalse(
+			"[GenerateR3JsonConfigDto] がない型は ForJson 化されてはいけない");
+	}
+
+	/// <summary>
+	/// [GenerateR3JsonConfigDto] を持たないカスタム型を通常プロパティとして保持する場合、
+	/// DTO 側では T? のままマッピングされることを検証する（ForJson 化されない）。
+	/// </summary>
+	[Fact]
+	public async Task CustomType_WithoutAttribute_IsMappedTo_NullableT_AsPlainProperty() {
+		var source = """
+			using R3.JsonConfig.Attributes;
+
+			namespace TestNamespace;
+
+			public struct HexColor { }
+
+			[GenerateR3JsonConfigDto]
+			public class Model {
+				public HexColor? ColorProp { get; set; }
+			}
+			""";
+
+		var (runResult, _) = await TestHelper.RunGenerator(source);
+		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
+
+		code.Contains("TestNamespace.HexColor? ColorProp").ShouldBeTrue(
+			"HexColor? 通常プロパティは HexColor? のままマッピングされるべき");
+		code.Contains("HexColorForJson").ShouldBeFalse(
+			"[GenerateR3JsonConfigDto] がない型は ForJson 化されてはいけない");
+	}
+
+	/// <summary>
+	/// ReactiveProperty&lt;T?&gt; のカスタム型に対する CreateModel の反映ロジックが
+	/// model.Prop.Value = e であることを検証する。
+	/// JsonConverter が担う型変換はジェネレータのコードに含まれない。
+	/// </summary>
+	[Fact]
+	public async Task CreateModel_AssignsToValue_ForReactivePropertyOfCustomNullableType() {
+		var source = """
+			using R3;
+			using R3.JsonConfig.Attributes;
+
+			namespace TestNamespace;
+
+			public struct HexColor { }
+
+			[GenerateR3JsonConfigDto]
+			public class Model {
+				public ReactiveProperty<HexColor?> ColorRp { get; } = new();
+			}
+			""";
+
+		var (runResult, _) = await TestHelper.RunGenerator(source);
+		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
+
+		code.Contains("model.ColorRp.Value = e;").ShouldBeTrue(
+			"ReactiveProperty<HexColor?> は model.Prop.Value = e で値を設定すべき");
+	}
+
+	/// <summary>
+	/// ReactiveProperty&lt;T?&gt; のカスタム型に対する CreateJson の変換ロジックが
+	/// model.Prop.Value で内部値を取り出すことを検証する。
+	/// </summary>
+	[Fact]
+	public async Task CreateJson_ExtractsValue_ForReactivePropertyOfCustomNullableType() {
+		var source = """
+			using R3;
+			using R3.JsonConfig.Attributes;
+
+			namespace TestNamespace;
+
+			public struct HexColor { }
+
+			[GenerateR3JsonConfigDto]
+			public class Model {
+				public ReactiveProperty<HexColor?> ColorRp { get; } = new();
+			}
+			""";
+
+		var (runResult, _) = await TestHelper.RunGenerator(source);
+		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
+
+		code.Contains("ColorRp = model.ColorRp.Value,").ShouldBeTrue(
+			"CreateJson で ReactiveProperty<HexColor?> は model.Prop.Value で値を取得すべき");
+	}
+
+	/// <summary>
+	/// ObservableList&lt;T?&gt; のカスタム型に対する CreateJson の変換ロジックが
+	/// .ToArray() で配列に変換することを検証する。
+	/// </summary>
+	[Fact]
+	public async Task CreateJson_CallsToArray_ForObservableListOfCustomNullableType() {
+		var source = """
+			using R3.JsonConfig.Attributes;
+			using ObservableCollections;
+
+			namespace TestNamespace;
+
+			public struct HexColor { }
+
+			[GenerateR3JsonConfigDto]
+			public class Model {
+				public ObservableList<HexColor?> ColorList { get; } = new();
+			}
+			""";
+
+		var (runResult, _) = await TestHelper.RunGenerator(source);
+		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
+
+		code.Contains("ColorList = model.ColorList.ToArray(),").ShouldBeTrue(
+			"CreateJson で ObservableList<HexColor?> は .ToArray() で配列に変換されるべき");
+	}
+
+	/// <summary>
+	/// カスタム型を含む全プロパティ種別（ReactiveProperty・ObservableList・通常）が
+	/// 1 つのモデルに混在する場合でもコンパイルエラーなく DTO が生成されることを検証する。
+	/// </summary>
+	[Fact]
+	public async Task AllCustomTypePropertyKinds_ProduceCorrectDto_WithoutCompileError() {
+		var source = """
+			using R3;
+			using R3.JsonConfig.Attributes;
+			using ObservableCollections;
+
+			namespace TestNamespace;
+
+			public struct HexColor { }
+
+			[GenerateR3JsonConfigDto]
+			public class Model {
+				public ReactiveProperty<HexColor?> ColorRp   { get; } = new();
+				public ObservableList<HexColor?>   ColorList  { get; } = new();
+				public HexColor?                   ColorProp  { get; set; }
+			}
+			""";
+
+		var (runResult, diagnostics) = await TestHelper.RunGenerator(source);
+
+		diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty();
+		var code = runResult.Results.SelectMany(r => r.GeneratedSources).First().SourceText.ToString();
+
+		code.Contains("TestNamespace.HexColor? ColorRp").ShouldBeTrue("ReactiveProperty<HexColor?> → HexColor?");
+		code.Contains("TestNamespace.HexColor?[]? ColorList").ShouldBeTrue("ObservableList<HexColor?> → HexColor?[]?");
+		code.Contains("TestNamespace.HexColor? ColorProp").ShouldBeTrue("HexColor? 通常プロパティ → HexColor?");
+	}
+
+	#endregion
 }

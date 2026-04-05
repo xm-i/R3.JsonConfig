@@ -18,7 +18,7 @@ public class Program {
 
 		if (File.Exists("config.json")) {
 			var json = File.ReadAllText("config.json");
-			JsonSerializer.Deserialize<ParentModelForJson>(json);
+			JsonSerializer.Deserialize(json, ConfigJsonSerializerContext.Default.ParentModelForJson);
 		} else {
 			var json = JsonSerializer.Serialize(ParentModelForJson.CreateJson(pm), ConfigJsonSerializerContext.Default.ParentModelForJson);
 			File.WriteAllText("config.json", json);

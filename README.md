@@ -178,8 +178,14 @@ public class HttpPluginConfig : IPluginConfig {
 ```csharp
 [GenerateR3JsonConfigDto]
 public class ParentModel {
-    // インターフェース型をプロパティとして持つ
-    public ReactiveProperty<IPluginConfig?> Plugin { get; } = new();
+    // 通常プロパティとして持つ場合
+    public IPluginConfig? Plugin1 { get; set; } = new FilePluginConfig();
+
+    // ReactiveProperty として持つ場合
+    public ReactiveProperty<IPluginConfig?> Plugin2 { get; } = new();
+
+    // ObservableList として複数の多態性オブジェクトを管理する場合
+    public ObservableList<IPluginConfig> PluginList { get; } = [];
 }
 ```
 
@@ -194,10 +200,20 @@ public class ParentModel {
 
 ```json
 {
-  "Plugin": {
+  "Plugin1": {
     "___Type": "File",
     "FilePath": "C:\\logs\\app.log"
-  }
+  },
+  "PluginList": [
+    {
+      "___Type": "File",
+      "FilePath": "C:\\logs\\app.log"
+    },
+    {
+      "___Type": "Http",
+      "Url": "https://example.com"
+    }
+  ]
 }
 ```
 

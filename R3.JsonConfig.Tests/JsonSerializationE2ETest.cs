@@ -1,0 +1,208 @@
+using System.Drawing;
+using System.Text.Json;
+
+using Microsoft.Extensions.DependencyInjection;
+
+using R3.JsonConfig.Demo.Composition.Store;
+
+using Shouldly;
+
+using Xunit;
+
+namespace R3.JsonConfig.Tests;
+
+public class JsonSerializationE2ETest {
+	private static IServiceProvider CreateServiceProvider() {
+		var services = new ServiceCollection();
+		services.AddTransient<ParentModel>();
+		services.AddTransient<ChildModel>();
+		return services.BuildServiceProvider();
+	}
+
+	[Fact]
+	public void Serialize_DefaultModel_ContainsExpectedDefaults() {
+		var model = new ParentModel();
+
+		var forJson = ParentModelForJson.CreateJson(model);
+		var json = JsonSerializer.Serialize(forJson, TestJsonSerializerContext.Default.ParentModelForJson);
+
+		json.ShouldNotBeNullOrWhiteSpace();
+		json.ShouldContain("\"StringRp\": \"DefaultString\"");
+		json.ShouldContain("\"StringProperty\": \"DefaultStringProperty\"");
+		json.ShouldContain("\"IntArray\"");
+	}
+
+	[Fact]
+	public void Serialize_ModelWithValues_ProducesCorrectJson() {
+		var model = new ParentModel();
+		model.StringRp.Value = "TestString";
+		model.ColorRp.Value = Color.FromArgb(0xFF, 0x12, 0x34, 0x56);
+		model.StringProperty = "TestStringProp";
+		model.ColorProperty = Color.FromArgb(0xFF, 0xAB, 0xCD, 0xEF);
+		model.ChildRp.Value = new ChildModel { Name = "ReactiveChild" };
+		model.ChildProperty = new ChildModel { Name = "DirectChild" };
+		model.ChildArray.Add(new ChildModel { Name = "ArrayChild" });
+
+		var forJson = ParentModelForJson.CreateJson(model);
+		var json = JsonSerializer.Serialize(forJson, TestJsonSerializerContext.Default.ParentModelForJson);
+
+		json.ShouldNotBeNullOrWhiteSpace();
+		json.ShouldContain("\"StringRp\": \"TestString\"");
+		json.ShouldContain("\"StringProperty\": \"TestStringProp\"");
+		json.ShouldContain("#FF123456");
+		json.ShouldContain("#FFABCDEF");
+		json.ShouldContain("\"ReactiveChild\"");
+		json.ShouldContain("\"DirectChild\"");
+		json.ShouldContain("\"ArrayChild\"");
+	}
+
+	[Fact]
+	public void Deserialize_FullJson_ProducesCorrectModel() {
+		var json = """
+        {
+            "StringRp": "FromJson",
+            "ColorRp": "#FF112233",
+            "ChildRp": { "Name": "JsonChild" },
+            "IntArray": [5, 10, 15],
+            "ColorArray": ["#FFAABBCC"],
+            "ChildArray": [{ "Name": "JsonArrayChild" }],
+            "StringProperty": "JsonStringProp",
+            "ColorProperty": "#FF445566",
+            "ChildProperty": { "Name": "JsonDirectChild" }
+        }
+        """;
+		var sp = CreateServiceProvider();
+
+		var forJson = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		forJson.ShouldNotBeNull();
+		var model = ParentModelForJson.CreateModel(forJson, sp);
+
+		model.ShouldNotBeNull();
+		model.StringRp.Value.ShouldBe("FromJson");
+		model.ColorRp.Value.ShouldBe(Color.FromArgb(0xFF, 0x11, 0x22, 0x33));
+		model.ChildRp.Value.ShouldNotBeNull();
+		model.ChildRp.Value.Name.ShouldBe("JsonChild");
+
+		model.IntArray.Count.ShouldBe(3);
+		model.IntArray[0].ShouldBe(5);
+		model.IntArray[1].ShouldBe(10);
+		model.IntArray[2].ShouldBe(15);
+
+		model.ColorArray.Count.ShouldBe(1);
+		model.ColorArray[0].ShouldBe(Color.FromArgb(0xFF, 0xAA, 0xBB, 0xCC));
+
+		model.ChildArray.Count.ShouldBe(1);
+		model.ChildArray[0].Name.ShouldBe("JsonArrayChild");
+
+		model.StringProperty.ShouldBe("JsonStringProp");
+		model.ColorProperty.ShouldBe(Color.FromArgb(0xFF, 0x44, 0x55, 0x66));
+		model.ChildProperty.ShouldNotBeNull();
+		model.ChildProperty!.Name.ShouldBe("JsonDirectChild");
+	}
+
+	[Fact]
+	public void Deserialize_PartialJson_OnlyOverridesSpecifiedFields() {
+		var json = """
+        {
+            "StringRp": "PartialOverride"
+        }
+        """;
+		var sp = CreateServiceProvider();
+
+		var forJson = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		forJson.ShouldNotBeNull();
+		var model = ParentModelForJson.CreateModel(forJson, sp);
+
+		model.ShouldNotBeNull();
+		model.StringRp.Value.ShouldBe("PartialOverride");
+		model.StringProperty.ShouldBe("DefaultStringProperty");
+		model.IntArray.Count.ShouldBe(4);
+		model.IntArray[0].ShouldBe(0);
+		model.IntArray[3].ShouldBe(3);
+	}
+
+	[Fact]
+	public void RoundTrip_SerializeAndDeserialize_PreservesAllValues() {
+		var sp = CreateServiceProvider();
+		var original = new ParentModel();
+		original.StringRp.Value = "RoundTrip";
+		original.ColorRp.Value = Color.FromArgb(0xAA, 0xBB, 0xCC, 0xDD);
+		original.StringProperty = "RoundTripProp";
+		original.ColorProperty = Color.FromArgb(0x11, 0x22, 0x33, 0x44);
+		original.ChildRp.Value = new ChildModel { Name = "RoundTripChild" };
+		original.ChildProperty = new ChildModel { Name = "RoundTripDirectChild" };
+		original.ChildArray.Add(new ChildModel { Name = "RoundTripArrayChild1" });
+		original.ChildArray.Add(new ChildModel { Name = "RoundTripArrayChild2" });
+
+		var forJson = ParentModelForJson.CreateJson(original);
+		var json = JsonSerializer.Serialize(forJson, TestJsonSerializerContext.Default.ParentModelForJson);
+		var deserialized = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		deserialized.ShouldNotBeNull();
+		var restored = ParentModelForJson.CreateModel(deserialized, sp);
+
+		restored.ShouldNotBeNull();
+		restored.StringRp.Value.ShouldBe(original.StringRp.Value);
+		restored.ColorRp.Value.ShouldBe(original.ColorRp.Value);
+		restored.StringProperty.ShouldBe(original.StringProperty);
+		restored.ColorProperty.ShouldBe(original.ColorProperty);
+		restored.ChildRp.Value.ShouldNotBeNull();
+		restored.ChildRp.Value.Name.ShouldBe("RoundTripChild");
+		restored.ChildProperty.ShouldNotBeNull();
+		restored.ChildProperty!.Name.ShouldBe("RoundTripDirectChild");
+
+		restored.IntArray.Count.ShouldBe(original.IntArray.Count);
+		for (var i = 0; i < original.IntArray.Count; i++) {
+			restored.IntArray[i].ShouldBe(original.IntArray[i]);
+		}
+
+		restored.ColorArray.Count.ShouldBe(original.ColorArray.Count);
+		for (var i = 0; i < original.ColorArray.Count; i++) {
+			restored.ColorArray[i].GetValueOrDefault().ToArgb().ShouldBe(original.ColorArray[i].GetValueOrDefault().ToArgb());
+		}
+
+		restored.ChildArray.Count.ShouldBe(original.ChildArray.Count);
+		for (var i = 0; i < original.ChildArray.Count; i++) {
+			restored.ChildArray[i].Name.ShouldBe(original.ChildArray[i].Name);
+		}
+	}
+
+	[Fact]
+	public void Deserialize_EmptyJson_ProducesModelWithDefaults() {
+		var json = "{}";
+		var sp = CreateServiceProvider();
+
+		var forJson = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		forJson.ShouldNotBeNull();
+		var model = ParentModelForJson.CreateModel(forJson, sp);
+
+		model.ShouldNotBeNull();
+		model.StringRp.Value.ShouldBe("DefaultString");
+		model.StringProperty.ShouldBe("DefaultStringProperty");
+		model.IntArray.Count.ShouldBe(4);
+		model.ColorArray.Count.ShouldBe(2);
+	}
+
+	[Fact]
+	public void RoundTrip_ChildModel_PreservesName() {
+		var sp = CreateServiceProvider();
+		var child = new ChildModel { Name = "E2EChild" };
+
+		var forJson = ChildModelForJson.CreateJson(child);
+		forJson.ShouldNotBeNull();
+		forJson.Name.ShouldBe("E2EChild");
+		var restored = ChildModelForJson.CreateModel(forJson, sp);
+
+		restored.ShouldNotBeNull();
+		restored.Name.ShouldBe("E2EChild");
+	}
+
+	[Fact]
+	public void CreateJson_AndCreateModel_ReturnNull_WhenInputIsNull() {
+		var sp = CreateServiceProvider();
+
+		ParentModelForJson.CreateJson(null).ShouldBeNull();
+		ParentModelForJson.CreateModel(null, sp).ShouldBeNull();
+		ChildModelForJson.CreateJson(null).ShouldBeNull();
+		ChildModelForJson.CreateModel(null, sp).ShouldBeNull();
+	}
+}

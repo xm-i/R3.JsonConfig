@@ -47,4 +47,22 @@ public class ParentModel {
 		get;
 		set;
 	}
+
+	public IPluginConfig? Plugin {
+		get;
+		set;
+	} = new FilePluginConfig();
+
+	public IPluginConfig? Plugin2 {
+		get;
+		set;
+	} = new HttpPluginConfig();
+
+	public ReactiveProperty<IPluginConfig> PluginRp {
+		get;
+	} = new(new FilePluginConfig());
+
+	public ObservableList<IPluginConfig> PluginList {
+		get;
+	} = [];
 }

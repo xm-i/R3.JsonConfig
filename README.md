@@ -17,8 +17,9 @@
 ## 属性
 | 属性 | 対象 | 役割 |
 |------|------|------|
-| `GenerateR3JsonConfigDtoAttribute` | クラス | DTO 生成トリガー |
+| `GenerateR3JsonConfigDtoAttribute` | クラス / インターフェース | DTO 生成トリガー |
 | `ExcludePropertyAttribute` | プロパティ | DTO 生成から除外 |
+| `JsonConfigDerivedTypeAttribute` | クラス / インターフェース | ポリモーフィズム用の派生型登録 |
 
 ### ExcludePropertyAttribute
 特定のプロパティを DTO に含めたくない場合に使用:
@@ -143,8 +144,64 @@ public partial class ParentModelForJson {
 }
 ```
 
-> **ポイント**: コンバータの登録は `JsonSerializerOptions` や `JsonSourceGenerationOptions` 側で行います。  
 > ジェネレータが生成するコード（`CreateModel` / `CreateJson`）は型の変換を担当せず、シリアライズ層は利用側の責務です。
+
+---
+
+## ポリモーフィズム (多態性) のサポート
+
+`IPluginConfig` のようなインターフェースや基底クラスをプロパティとして持つ場合、`[JsonConfigDerivedType]` 属性を使用して派生型を登録することで、型に応じた適切なシリアライズ・デシリアライズが可能になります。
+
+### 利用例
+
+**① インターフェースと派生型の定義:**
+
+```csharp
+[GenerateR3JsonConfigDto]
+[JsonConfigDerivedType(typeof(FilePluginConfig), "File")]
+[JsonConfigDerivedType(typeof(HttpPluginConfig), "Http")]
+public interface IPluginConfig { }
+
+[GenerateR3JsonConfigDto]
+public class FilePluginConfig : IPluginConfig {
+    public string FilePath { get; set; } = "";
+}
+
+[GenerateR3JsonConfigDto]
+public class HttpPluginConfig : IPluginConfig {
+    public string Url { get; set; } = "";
+}
+```
+
+**② モデルでの利用:**
+
+```csharp
+[GenerateR3JsonConfigDto]
+public class ParentModel {
+    // インターフェース型をプロパティとして持つ
+    public ReactiveProperty<IPluginConfig?> Plugin { get; } = new();
+}
+```
+
+### 生成されるコードの動作
+
+ジェネレータは、基底型（`IPluginConfigForJson`）に以下の機能を自動生成します：
+
+1. **STJ 属性の付与**: `[JsonPolymorphic]` と `[JsonDerivedType]` が DTO クラスに付与されます。
+2. **自動ディスパッチ**: `CreateModel` / `CreateJson` メソッド内で、渡されたオブジェクトの実際の型（`File` か `Http` か）を判定し、それぞれの変換メソッドへ適切に振り分けます。
+
+**シリアライズ結果の例 (`config.json`):**
+
+```json
+{
+  "Plugin": {
+    "___Type": "File",
+    "FilePath": "C:\\logs\\app.log"
+  }
+}
+```
+
+> **注意**: `___Type` プロパティ（型識別子）は、System.Text.Json のポリモーフィズム機能によって自動的に処理されます。
 
 ---
 
@@ -159,7 +216,7 @@ public partial class ParentModelForJson {
 
 | 条件 | 詳細 |
 |------|------|
-| クラス宣言である | `class` のみ。`record`・`struct` は対象外 |
+| クラスまたはインターフェースである | `class` または `interface`。`record`・`struct` は対象外 |
 | 属性が 1 つ以上付与されている | 構文レベルの高速フィルタ |
 | `[GenerateR3JsonConfigDto]` が付与されている | 完全修飾名 `R3.JsonConfig.Attributes.GenerateR3JsonConfigDtoAttribute` と一致すること |
 

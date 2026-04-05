@@ -9,5 +9,8 @@ namespace R3.JsonConfig.Tests;
 	Converters = [typeof(ColorJsonConverter)]
 )]
 [JsonSerializable(typeof(ParentModelForJson))]
+[JsonSerializable(typeof(IPluginConfigForJson))]
+[JsonSerializable(typeof(FilePluginConfigForJson))]
+[JsonSerializable(typeof(HttpPluginConfigForJson))]
 public partial class TestJsonSerializerContext : JsonSerializerContext {
 }

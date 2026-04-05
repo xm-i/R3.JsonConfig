@@ -10,6 +10,8 @@ public class Program {
 		var serviceCollection = new ServiceCollection();
 		serviceCollection.AddTransient<ParentModel>();
 		serviceCollection.AddTransient<ChildModel>();
+		serviceCollection.AddTransient<FilePluginConfig>();
+		serviceCollection.AddTransient<HttpPluginConfig>();
 
 
 		var serviceProvider = serviceCollection.BuildServiceProvider();
@@ -18,7 +20,7 @@ public class Program {
 
 		if (File.Exists("config.json")) {
 			var json = File.ReadAllText("config.json");
-			JsonSerializer.Deserialize(json, ConfigJsonSerializerContext.Default.ParentModelForJson);
+			var model = JsonSerializer.Deserialize(json, ConfigJsonSerializerContext.Default.ParentModelForJson);
 		} else {
 			var json = JsonSerializer.Serialize(ParentModelForJson.CreateJson(pm), ConfigJsonSerializerContext.Default.ParentModelForJson);
 			File.WriteAllText("config.json", json);

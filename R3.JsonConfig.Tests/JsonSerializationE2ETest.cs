@@ -16,6 +16,8 @@ public class JsonSerializationE2ETest {
 		var services = new ServiceCollection();
 		services.AddTransient<ParentModel>();
 		services.AddTransient<ChildModel>();
+		services.AddTransient<FilePluginConfig>();
+		services.AddTransient<HttpPluginConfig>();
 		return services.BuildServiceProvider();
 	}
 
@@ -204,5 +206,181 @@ public class JsonSerializationE2ETest {
 		ParentModelForJson.CreateModel(null, sp).ShouldBeNull();
 		ChildModelForJson.CreateJson(null).ShouldBeNull();
 		ChildModelForJson.CreateModel(null, sp).ShouldBeNull();
+	}
+
+	[Fact]
+	public void Serialize_PolymorphicInterface_ContainsTypeDiscriminator() {
+		IPluginConfig filePlugin = new FilePluginConfig { FilePath = "test.txt" };
+		IPluginConfig httpPlugin = new HttpPluginConfig { Url = "https://test.com" };
+
+		var fileDto = IPluginConfigForJson.CreateJson(filePlugin);
+		var httpDto = IPluginConfigForJson.CreateJson(httpPlugin);
+
+		var fileJson = JsonSerializer.Serialize(fileDto, TestJsonSerializerContext.Default.IPluginConfigForJson);
+		var httpJson = JsonSerializer.Serialize(httpDto, TestJsonSerializerContext.Default.IPluginConfigForJson);
+
+		fileJson.ShouldContain("\"___Type\": \"File\"");
+		fileJson.ShouldContain("\"FilePath\": \"test.txt\"");
+
+		httpJson.ShouldContain("\"___Type\": \"Http\"");
+		httpJson.ShouldContain("\"Url\": \"https://test.com\"");
+	}
+
+	[Fact]
+	public void Deserialize_PolymorphicJson_CreatesCorrectConcreteType() {
+		var sp = CreateServiceProvider();
+		var fileJson = """{"___Type": "File", "FilePath": "json.txt"}""";
+		var httpJson = """{"___Type": "Http", "Url": "https://json.com"}""";
+
+		var fileDto = JsonSerializer.Deserialize(fileJson, TestJsonSerializerContext.Default.IPluginConfigForJson);
+		var httpDto = JsonSerializer.Deserialize(httpJson, TestJsonSerializerContext.Default.IPluginConfigForJson);
+
+		var fileModel = IPluginConfigForJson.CreateModel(fileDto, sp);
+		var httpModel = IPluginConfigForJson.CreateModel(httpDto, sp);
+
+		fileModel.ShouldBeOfType<FilePluginConfig>();
+		((FilePluginConfig)fileModel!).FilePath.ShouldBe("json.txt");
+
+		httpModel.ShouldBeOfType<HttpPluginConfig>();
+		((HttpPluginConfig)httpModel!).Url.ShouldBe("https://json.com");
+	}
+
+	[Fact]
+	public void RoundTrip_NestedPolymorphicProperty_PreservesTypeAndValues() {
+		var sp = CreateServiceProvider();
+		var model = new ParentModel {
+			Plugin = new HttpPluginConfig { Url = "https://roundtrip.com" },
+			Plugin2 = new FilePluginConfig { FilePath = "roundtrip.txt" }
+		};
+
+		var dto = ParentModelForJson.CreateJson(model);
+		var json = JsonSerializer.Serialize(dto, TestJsonSerializerContext.Default.ParentModelForJson);
+
+		var deserializedDto = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var restoredModel = ParentModelForJson.CreateModel(deserializedDto, sp);
+
+		restoredModel.ShouldNotBeNull();
+		restoredModel.Plugin.ShouldBeOfType<HttpPluginConfig>();
+		((HttpPluginConfig)restoredModel.Plugin!).Url.ShouldBe("https://roundtrip.com");
+
+		restoredModel.Plugin2.ShouldBeOfType<FilePluginConfig>();
+		((FilePluginConfig)restoredModel.Plugin2!).FilePath.ShouldBe("roundtrip.txt");
+	}
+
+	[Fact]
+	public void RoundTrip_ReactivePropertyOfPolymorphicInterface_PreservesTypeAndValues() {
+		var sp = CreateServiceProvider();
+		var model = new ParentModel();
+		model.PluginRp.Value = new HttpPluginConfig { Url = "https://rp-roundtrip.com" };
+
+		var dto = ParentModelForJson.CreateJson(model);
+		var json = JsonSerializer.Serialize(dto, TestJsonSerializerContext.Default.ParentModelForJson);
+
+		json.ShouldContain("\"___Type\": \"Http\"");
+		json.ShouldContain("\"Url\": \"https://rp-roundtrip.com\"");
+
+		var deserializedDto = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var restoredModel = ParentModelForJson.CreateModel(deserializedDto, sp);
+
+		restoredModel.ShouldNotBeNull();
+		restoredModel.PluginRp.Value.ShouldBeOfType<HttpPluginConfig>();
+		((HttpPluginConfig)restoredModel.PluginRp.Value).Url.ShouldBe("https://rp-roundtrip.com");
+	}
+
+	[Fact]
+	public void RoundTrip_ObservableListOfPolymorphicInterface_PreservesTypeAndValues() {
+		var sp = CreateServiceProvider();
+		var model = new ParentModel();
+		model.PluginList.Add(new FilePluginConfig { FilePath = "list1.txt" });
+		model.PluginList.Add(new HttpPluginConfig { Url = "https://list2.com" });
+
+		var dto = ParentModelForJson.CreateJson(model);
+		var json = JsonSerializer.Serialize(dto, TestJsonSerializerContext.Default.ParentModelForJson);
+
+		json.ShouldContain("\"___Type\": \"File\"");
+		json.ShouldContain("\"FilePath\": \"list1.txt\"");
+		json.ShouldContain("\"___Type\": \"Http\"");
+		json.ShouldContain("\"Url\": \"https://list2.com\"");
+
+		var deserializedDto = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var restoredModel = ParentModelForJson.CreateModel(deserializedDto, sp);
+
+		restoredModel.ShouldNotBeNull();
+		restoredModel.PluginList.Count.ShouldBe(2);
+		restoredModel.PluginList[0].ShouldBeOfType<FilePluginConfig>();
+		((FilePluginConfig)restoredModel.PluginList[0]).FilePath.ShouldBe("list1.txt");
+		restoredModel.PluginList[1].ShouldBeOfType<HttpPluginConfig>();
+		((HttpPluginConfig)restoredModel.PluginList[1]).Url.ShouldBe("https://list2.com");
+	}
+
+	[Fact]
+	public void Serialize_ReactivePropertyOfPolymorphicInterface_ContainsTypeDiscriminator() {
+		var model = new ParentModel();
+		model.PluginRp.Value = new FilePluginConfig { FilePath = "rp-plugin.txt" };
+
+		var dto = ParentModelForJson.CreateJson(model);
+		var json = JsonSerializer.Serialize(dto, TestJsonSerializerContext.Default.ParentModelForJson);
+
+		json.ShouldContain("\"PluginRp\"");
+		json.ShouldContain("\"___Type\": \"File\"");
+		json.ShouldContain("\"FilePath\": \"rp-plugin.txt\"");
+	}
+
+	[Fact]
+	public void Serialize_ObservableListOfPolymorphicInterface_ContainsTypeDiscriminators() {
+		var model = new ParentModel();
+		model.PluginList.Add(new FilePluginConfig { FilePath = "f1.txt" });
+		model.PluginList.Add(new HttpPluginConfig { Url = "https://h1.com" });
+
+		var dto = ParentModelForJson.CreateJson(model);
+		var json = JsonSerializer.Serialize(dto, TestJsonSerializerContext.Default.ParentModelForJson);
+
+		json.ShouldContain("\"PluginList\"");
+		json.ShouldContain("\"___Type\": \"File\"");
+		json.ShouldContain("\"FilePath\": \"f1.txt\"");
+		json.ShouldContain("\"___Type\": \"Http\"");
+		json.ShouldContain("\"Url\": \"https://h1.com\"");
+	}
+
+	[Fact]
+	public void Deserialize_ReactivePropertyOfPolymorphicInterface_CreatesCorrectConcreteType() {
+		var sp = CreateServiceProvider();
+		var json = """
+		{
+			"PluginRp": { "___Type": "Http", "Url": "https://deser-rp.com" }
+		}
+		""";
+
+		var forJson = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		forJson.ShouldNotBeNull();
+		var model = ParentModelForJson.CreateModel(forJson, sp);
+
+		model.ShouldNotBeNull();
+		model.PluginRp.Value.ShouldBeOfType<HttpPluginConfig>();
+		((HttpPluginConfig)model.PluginRp.Value).Url.ShouldBe("https://deser-rp.com");
+	}
+
+	[Fact]
+	public void Deserialize_ObservableListOfPolymorphicInterface_CreatesCorrectConcreteTypes() {
+		var sp = CreateServiceProvider();
+		var json = """
+		{
+			"PluginList": [
+				{ "___Type": "File", "FilePath": "deser1.txt" },
+				{ "___Type": "Http", "Url": "https://deser2.com" }
+			]
+		}
+		""";
+
+		var forJson = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		forJson.ShouldNotBeNull();
+		var model = ParentModelForJson.CreateModel(forJson, sp);
+
+		model.ShouldNotBeNull();
+		model.PluginList.Count.ShouldBe(2);
+		model.PluginList[0].ShouldBeOfType<FilePluginConfig>();
+		((FilePluginConfig)model.PluginList[0]).FilePath.ShouldBe("deser1.txt");
+		model.PluginList[1].ShouldBeOfType<HttpPluginConfig>();
+		((HttpPluginConfig)model.PluginList[1]).Url.ShouldBe("https://deser2.com");
 	}
 }

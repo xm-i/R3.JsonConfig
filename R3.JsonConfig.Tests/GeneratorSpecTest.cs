@@ -1455,4 +1455,263 @@ public class GeneratorSpecTest {
 	}
 
 	#endregion
+
+	#region 6. Polymorphism support
+
+	/// <summary>
+	/// [JsonConfigDerivedType] を持つ基底型（インターフェース/クラス）から、
+	/// STJ のポリモーフィック属性を持つ DTO が生成されることを検証する。
+	/// </summary>
+	[Fact]
+	public async Task PolymorphicBase_GeneratesDtoWithStjAttributes() {
+		var source = """
+			using R3.JsonConfig.Attributes;
+
+			namespace TestNamespace;
+
+			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType(typeof(SubA), "A")]
+			[JsonConfigDerivedType(typeof(SubB), "B")]
+			public interface IBase { }
+
+			[GenerateR3JsonConfigDto]
+			public class SubA : IBase { public int A { get; set; } }
+
+			[GenerateR3JsonConfigDto]
+			public class SubB : IBase { public int B { get; set; } }
+			""";
+
+		var (runResult, _) = await TestHelper.RunGenerator(source);
+		var code = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "IBaseForJson.g.cs")
+			.SourceText.ToString();
+
+		code.ShouldContain("[System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = \"___Type\")]");
+		code.ShouldContain("[System.Text.Json.Serialization.JsonDerivedType(typeof(SubAForJson), \"A\")]");
+		code.ShouldContain("[System.Text.Json.Serialization.JsonDerivedType(typeof(SubBForJson), \"B\")]");
+	}
+
+	/// <summary>
+	/// ポリモーフィックな基底型の CreateModel/CreateJson が、派生型へのディスパッチロジックを持つことを検証する。
+	/// </summary>
+	[Fact]
+	public async Task PolymorphicBase_GeneratesDispatchLogic() {
+		var source = """
+			using R3.JsonConfig.Attributes;
+
+			namespace TestNamespace;
+
+			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType(typeof(SubA), "A")]
+			public interface IBase { }
+
+			[GenerateR3JsonConfigDto]
+			public class SubA : IBase { public int A { get; set; } }
+			""";
+
+		var (runResult, _) = await TestHelper.RunGenerator(source);
+		var code = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "IBaseForJson.g.cs")
+			.SourceText.ToString();
+
+		// CreateModel のディスパッチ
+		code.ShouldContain("if (json is SubAForJson e_SubA)");
+		code.ShouldContain("return SubAForJson.CreateModel(e_SubA, sp.CreateScope().ServiceProvider)");
+
+		// CreateJson のディスパッチ
+		code.ShouldContain("if (model is SubA m_SubA)");
+		code.ShouldContain("return SubAForJson.CreateJson(m_SubA)");
+
+		// 未知の型へのガード
+		code.ShouldContain("throw new System.InvalidOperationException($\"Unknown derived type: {json?.GetType().FullName}\");");
+	}
+
+	/// <summary>
+	/// プロパティの型が [GenerateR3JsonConfigDto] を持つインターフェースである場合、
+	/// DTO 側ではそのインターフェースの ForJson 型にマッピングされ、
+	/// 変換メソッドが再帰的に呼ばれることを検証する。
+	/// </summary>
+	[Fact]
+	public async Task PropertyOfPolymorphicInterface_IsMappedToInterfaceDto() {
+		var source = """
+			using R3.JsonConfig.Attributes;
+
+			namespace TestNamespace;
+
+			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType(typeof(SubA), "A")]
+			public interface IBase { }
+
+			[GenerateR3JsonConfigDto]
+			public class SubA : IBase { public int A { get; set; } }
+
+			[GenerateR3JsonConfigDto]
+			public class Container {
+				public IBase BaseProp { get; set; }
+			}
+			""";
+
+		var (runResult, _) = await TestHelper.RunGenerator(source);
+		var code = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "ContainerForJson.g.cs")
+			.SourceText.ToString();
+
+		// プロパティ型
+		code.ShouldContain("IBaseForJson? BaseProp");
+
+		// 変換ロジック
+		code.ShouldContain("IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider);");
+		code.ShouldContain("BaseProp = TestNamespace.IBaseForJson.CreateJson(model.BaseProp)");
+	}
+
+	/// <summary>
+	/// ReactiveProperty&lt;IInterface&gt; のジェネリクス型がポリモーフィックなインターフェースの場合、
+	/// DTO 側ではそのインターフェースの ForJson 型（IBaseForJson?）にマッピングされ、
+	/// CreateModel/CreateJson で再帰的に変換メソッドが呼ばれることを検証する。
+	/// </summary>
+	[Fact]
+	public async Task ReactivePropertyOfPolymorphicInterface_IsMappedToInterfaceDto() {
+		var source = """
+			using R3;
+			using R3.JsonConfig.Attributes;
+
+			namespace TestNamespace;
+
+			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType(typeof(SubA), "A")]
+			public interface IBase { }
+
+			[GenerateR3JsonConfigDto]
+			public class SubA : IBase { public int A { get; set; } }
+
+			[GenerateR3JsonConfigDto]
+			public class Container {
+				public ReactiveProperty<IBase> BaseRp { get; } = new();
+			}
+			""";
+
+		var (runResult, diagnostics) = await TestHelper.RunGenerator(source);
+		diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty(
+			"ReactiveProperty<IInterface> でコンパイルエラーが発生してはいけない");
+
+		var code = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "ContainerForJson.g.cs")
+			.SourceText.ToString();
+
+		// プロパティ型
+		code.Contains("TestNamespace.IBaseForJson? BaseRp").ShouldBeTrue(
+			"ReactiveProperty<IBase> は IBaseForJson? にマッピングされるべき");
+
+		// CreateModel のロジック
+		code.Contains("model.BaseRp.Value = TestNamespace.IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider);").ShouldBeTrue(
+			"CreateModel 内でインターフェースの ForJson 型の CreateModel が呼ばれるべき");
+
+		// CreateJson のロジック
+		code.Contains("BaseRp = TestNamespace.IBaseForJson.CreateJson(model.BaseRp.Value),").ShouldBeTrue(
+			"CreateJson 内でインターフェースの ForJson 型の CreateJson が呼ばれるべき");
+	}
+
+	/// <summary>
+	/// ObservableList&lt;IInterface&gt; のジェネリクス型がポリモーフィックなインターフェースの場合、
+	/// DTO 側ではそのインターフェースの ForJson 配列型（IBaseForJson[]?）にマッピングされ、
+	/// CreateModel では Clear/Add、CreateJson では Select + CreateJson + ToArray が使われることを検証する。
+	/// </summary>
+	[Fact]
+	public async Task ObservableListOfPolymorphicInterface_IsMappedToInterfaceDtoArray() {
+		var source = """
+			using R3.JsonConfig.Attributes;
+			using ObservableCollections;
+
+			namespace TestNamespace;
+
+			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType(typeof(SubA), "A")]
+			[JsonConfigDerivedType(typeof(SubB), "B")]
+			public interface IBase { }
+
+			[GenerateR3JsonConfigDto]
+			public class SubA : IBase { public int A { get; set; } }
+
+			[GenerateR3JsonConfigDto]
+			public class SubB : IBase { public string B { get; set; } = ""; }
+
+			[GenerateR3JsonConfigDto]
+			public class Container {
+				public ObservableList<IBase> BaseList { get; } = new();
+			}
+			""";
+
+		var (runResult, diagnostics) = await TestHelper.RunGenerator(source);
+		diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty(
+			"ObservableList<IInterface> でコンパイルエラーが発生してはいけない");
+
+		var code = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "ContainerForJson.g.cs")
+			.SourceText.ToString();
+
+		// プロパティ型
+		code.Contains("TestNamespace.IBaseForJson[]? BaseList").ShouldBeTrue(
+			"ObservableList<IBase> は IBaseForJson[]? にマッピングされるべき");
+
+		// CreateModel のロジック
+		code.Contains("model.BaseList.Clear()").ShouldBeTrue(
+			"ObservableList の CreateModel では Clear() が呼ばれるべき");
+		code.Contains("model.BaseList.Add(TestNamespace.IBaseForJson.CreateModel(e, sp.CreateScope().ServiceProvider))").ShouldBeTrue(
+			"ObservableList の CreateModel では Add() 内でインターフェースの CreateModel が呼ばれるべき");
+
+		// CreateJson のロジック
+		code.Contains("model.BaseList.Select(x => TestNamespace.IBaseForJson.CreateJson(x)).ToArray()").ShouldBeTrue(
+			"ObservableList の CreateJson では Select + CreateJson + ToArray が使われるべき");
+	}
+
+	/// <summary>
+	/// ReactiveProperty・ObservableList・通常プロパティのすべてでポリモーフィックなインターフェースを
+	/// 型引数に持つ場合、1 つのモデルから DTO が正しく生成されることを統合的に検証する。
+	/// </summary>
+	[Fact]
+	public async Task AllPropertyKindsWithPolymorphicInterface_ProduceCorrectDto() {
+		var source = """
+			using R3;
+			using R3.JsonConfig.Attributes;
+			using ObservableCollections;
+
+			namespace TestNamespace;
+
+			[GenerateR3JsonConfigDto]
+			[JsonConfigDerivedType(typeof(SubA), "A")]
+			public interface IBase { }
+
+			[GenerateR3JsonConfigDto]
+			public class SubA : IBase { public int A { get; set; } }
+
+			[GenerateR3JsonConfigDto]
+			public class Container {
+				public IBase PlainBase { get; set; }
+				public ReactiveProperty<IBase> RpBase { get; } = new();
+				public ObservableList<IBase> ListBase { get; } = new();
+			}
+			""";
+
+		var (runResult, diagnostics) = await TestHelper.RunGenerator(source);
+		diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty();
+
+		var code = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "ContainerForJson.g.cs")
+			.SourceText.ToString();
+
+		code.Contains("TestNamespace.IBaseForJson? PlainBase").ShouldBeTrue(
+			"通常プロパティ IBase → IBaseForJson?");
+		code.Contains("TestNamespace.IBaseForJson? RpBase").ShouldBeTrue(
+			"ReactiveProperty<IBase> → IBaseForJson?");
+		code.Contains("TestNamespace.IBaseForJson[]? ListBase").ShouldBeTrue(
+			"ObservableList<IBase> → IBaseForJson[]?");
+	}
+
+	#endregion
 }

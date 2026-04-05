@@ -80,6 +80,234 @@ var loaded = JsonSerializer.Deserialize(File.ReadAllText("config.json"), ConfigJ
 ParentModelForJson.CreateModel(loaded, sp);
 ```
 
+---
+
+## ジェネレータ仕様 (DefaultJsonDtoGenerator)
+
+以下は `DefaultJsonDtoGenerator` の詳細な動作仕様です。
+「自分のモデルにどう属性を付ければ、どのような DTO が生成されるか」を把握するためのリファレンスとしてお使いください。
+
+### 1. 対象クラスの条件
+
+ジェネレータが処理するのは、以下の **すべて** を満たすクラスです。
+
+| 条件 | 詳細 |
+|------|------|
+| クラス宣言である | `class` のみ。`record`・`struct` は対象外 |
+| 属性が 1 つ以上付与されている | 構文レベルの高速フィルタ |
+| `[GenerateR3JsonConfigDto]` が付与されている | 完全修飾名 `R3.JsonConfig.Attributes.GenerateR3JsonConfigDtoAttribute` と一致すること |
+
+```csharp
+using R3.JsonConfig.Attributes;
+
+[GenerateR3JsonConfigDto]   // ← これがトリガー
+public class MyModel { ... }
+```
+
+### 2. 生成される DTO の命名規則
+
+| 元のモデル | 生成される DTO | ファイル名 |
+|-----------|---------------|-----------|
+| `MyModel` | `MyModelForJson` | `MyModelForJson.g.cs` |
+| `ChildModel` | `ChildModelForJson` | `ChildModelForJson.g.cs` |
+
+- DTO は元のモデルと **同じ名前空間** に生成されます。
+- `partial class` として生成されるため、追加メンバーを別ファイルで拡張できます。
+
+### 3. プロパティの収集ルール
+
+ジェネレータはモデルの **public プロパティ** を走査し、以下のルールでフィルタリングします。
+
+```
+モデルの全メンバー
+  │
+  ├─ public でない → スキップ
+  ├─ [ExcludeProperty] 付き → スキップ
+  │
+  ├─ ReactiveProperty<T>  → ✅ 収集 (setter 不要)
+  ├─ ObservableList<T>    → ✅ 収集 (setter 不要)
+  └─ それ以外 (通常プロパティ)
+       ├─ public setter あり → ✅ 収集
+       └─ public setter なし → スキップ
+```
+
+#### ポイント
+
+- **`ReactiveProperty<T>` / `ObservableList<T>`** は `.Value` や `.Add()` 経由で値を設定するため、**setter の有無は問われません**。
+- **通常プロパティ** は直接代入で値を反映するため、**public setter が必須** です。  
+  `{ get; }` のみ (read-only) や `{ get; private set; }` は対象外になります。
+- **`[ExcludeProperty]`** を付けたプロパティは、型や setter の有無にかかわらず DTO から除外されます。
+
+```csharp
+[GenerateR3JsonConfigDto]
+public class Example {
+    // ✅ 収集される: ReactiveProperty (setter 不要)
+    public ReactiveProperty<string> Title { get; } = new("");
+
+    // ✅ 収集される: ObservableList (setter 不要)
+    public ObservableList<int> Numbers { get; } = new();
+
+    // ✅ 収集される: public setter あり
+    public string Name { get; set; } = "";
+
+    // ❌ スキップ: public setter なし
+    public string ReadOnly { get; } = "fixed";
+
+    // ❌ スキップ: private setter
+    public string Internal { get; private set; } = "";
+
+    // ❌ スキップ: ExcludeProperty
+    [ExcludeProperty]
+    public string Secret { get; set; } = "";
+}
+```
+
+### 4. 型の変換ルール
+
+収集されたプロパティは、その種類と内部型に応じて DTO 側の型が決まります。  
+すべての DTO プロパティは **nullable** になります（JSON で省略可能にするため）。
+
+#### 4.1 変換マッピング一覧
+
+| モデル側の型 | 内部型の条件 | DTO 側の型 | 分類 |
+|-------------|-------------|-----------|------|
+| `ReactiveProperty<T>` | `T` が通常の型 | `T?` | ReactiveProperty × Plain |
+| `ReactiveProperty<T>` | `T` に `[GenerateR3JsonConfigDto]` あり | `TForJson?` | ReactiveProperty × ForJson |
+| `ObservableList<T>` | `T` が通常の型 | `T[]?` | ObservableList × Plain |
+| `ObservableList<T>` | `T` に `[GenerateR3JsonConfigDto]` あり | `TForJson[]?` | ObservableList × ForJson |
+| `T`（通常プロパティ） | `T` が通常の型 | `T?` | Plain × Plain |
+| `T`（通常プロパティ） | `T` に `[GenerateR3JsonConfigDto]` あり | `TForJson?` | Plain × ForJson |
+
+#### 4.2 具体例
+
+以下のモデル定義に対して:
+
+```csharp
+[GenerateR3JsonConfigDto]
+public class ParentModel {
+    public ReactiveProperty<string> StringRp { get; } = new("Default");
+    public ReactiveProperty<ChildModel> ChildRp { get; } = new();
+    public ObservableList<int> IntArray { get; } = [];
+    public ObservableList<ChildModel> ChildArray { get; } = [];
+    public string StringProperty { get; set; } = "";
+    public ChildModel? ChildProperty { get; set; }
+}
+
+[GenerateR3JsonConfigDto]
+public class ChildModel {
+    public string Name { get; set; } = "ChildName";
+}
+```
+
+以下の DTO が生成されます:
+
+```csharp
+// ParentModelForJson.g.cs (自動生成)
+public partial class ParentModelForJson {
+    public string?             StringRp       { get; set; }  // ReactiveProperty<string> → string?
+    public ChildModelForJson?  ChildRp        { get; set; }  // ReactiveProperty<ChildModel> → ChildModelForJson?
+    public int[]?              IntArray       { get; set; }  // ObservableList<int> → int[]?
+    public ChildModelForJson[]? ChildArray    { get; set; }  // ObservableList<ChildModel> → ChildModelForJson[]?
+    public string?             StringProperty { get; set; }  // string → string?
+    public ChildModelForJson?  ChildProperty  { get; set; }  // ChildModel? → ChildModelForJson?
+
+    // + CreateModel / CreateJson メソッド (後述)
+}
+
+// ChildModelForJson.g.cs (自動生成)
+public partial class ChildModelForJson {
+    public string? Name { get; set; }
+
+    // + CreateModel / CreateJson メソッド
+}
+```
+
+#### 4.3 ネストされたモデルの再帰変換
+
+型 `T` 自体に `[GenerateR3JsonConfigDto]` が付与されている場合、ジェネレータはその型を **再帰的に DTO 化** します。  
+つまり `ChildModel` → `ChildModelForJson` への変換が自動的に行われ、`CreateModel` / `CreateJson` 内部でもネストされた DTO の変換メソッドが呼び出されます。
+
+### 5. 自動生成される変換メソッド
+
+各 DTO には以下の 2 つの `static` メソッドが生成されます。
+
+#### 5.1 `CreateModel` — JSON DTO → ドメインモデル
+
+```csharp
+[return: NotNullIfNotNull(nameof(json))]
+public static ParentModel? CreateModel(ParentModelForJson? json, IServiceProvider sp);
+```
+
+| 項目 | 説明 |
+|------|------|
+| 目的 | JSON からデシリアライズした DTO をドメインモデルに変換する |
+| モデルの生成方法 | `sp.GetRequiredService<T>()` で DI コンテナからモデルを取得 |
+| null 処理 | `json` が `null` なら `null` を返す (`[NotNullIfNotNull]`) |
+
+**プロパティ種別ごとの反映ロジック:**
+
+| プロパティ種別 | 反映方法 |
+|--------------|---------|
+| 通常プロパティ | `model.Prop = value;` で直接代入 |
+| `ReactiveProperty<T>` | `model.Prop.Value = value;` で Value を更新 |
+| `ObservableList<T>` | `model.Prop.Clear()` → `model.Prop.Add(item)` でリストを再構築 |
+| ネストされた ForJson 型 | 代入値が `TForJson.CreateModel(e, sp.CreateScope().ServiceProvider)` に置き換わる |
+
+> **DI の利用について**: `CreateModel` は `IServiceProvider` を引数に受け取ります。  
+> これにより、モデルのインスタンス生成を DI コンテナに委譲できます（コンストラクタインジェクションが必要なモデルに対応）。  
+> ネストされたモデルの変換時には `sp.CreateScope().ServiceProvider` で**新しいスコープ**が作成されます。
+
+#### 5.2 `CreateJson` — ドメインモデル → JSON DTO
+
+```csharp
+[return: NotNullIfNotNull(nameof(model))]
+public static ParentModelForJson? CreateJson(ParentModel? model);
+```
+
+| 項目 | 説明 |
+|------|------|
+| 目的 | ドメインモデルを JSON シリアライズ用の DTO に変換する |
+| null 処理 | `model` が `null` なら `null` を返す (`[NotNullIfNotNull]`) |
+| DI 不要 | モデル → DTO 方向は DI を必要としない |
+
+**プロパティ種別ごとの変換ロジック:**
+
+| プロパティ種別 | 変換式 |
+|--------------|-------|
+| 通常プロパティ | `model.Prop` (そのまま) |
+| `ReactiveProperty<T>` | `model.Prop.Value` |
+| `ObservableList<T>` | `model.Prop.ToArray()` |
+| ネストされた ForJson 型 (通常) | `TForJson.CreateJson(model.Prop)` |
+| ネストされた ForJson 型 (ReactiveProperty) | `TForJson.CreateJson(model.Prop.Value)` |
+| ネストされた ForJson 型 (ObservableList) | `model.Prop.Select(x => TForJson.CreateJson(x)).ToArray()` |
+
+### 6. 全体フロー図
+
+```
+┌──────────────────────┐    シリアライズ     ┌───────────────────────┐
+│   ParentModel        │ ──────────────────→ │  ParentModelForJson   │
+│  (ドメインモデル)      │   CreateJson()     │  (JSON DTO)           │
+│                      │                     │                       │
+│  .StringRp.Value     │ ──→                 │  .StringRp  : string? │
+│  .ChildRp.Value      │ ──→ CreateJson()    │  .ChildRp   : ChildModelForJson? │
+│  .IntArray           │ ──→ .ToArray()      │  .IntArray  : int[]?  │
+│  .ChildArray         │ ──→ Select+CreateJson│ .ChildArray: ChildModelForJson[]? │
+│  .StringProperty     │ ──→                 │  .StringProperty: string? │
+│  .ChildProperty      │ ──→ CreateJson()    │  .ChildProperty: ChildModelForJson? │
+└──────────────────────┘                     └───────────────────────┘
+                                                       │
+                                                       │ JsonSerializer
+                                                       ▼
+                                                   config.json
+                                                       │
+                                                       │ JsonSerializer
+                                                       ▼
+┌──────────────────────┐   デシリアライズ     ┌───────────────────────┐
+│   ParentModel        │ ←────────────────── │  ParentModelForJson   │
+│  (DI で取得)          │  CreateModel(sp)    │  (JSON DTO)           │
+└──────────────────────┘                     └───────────────────────┘
+```
+
 ## 変更点 (以前の Convert 機能撤廃後)
 - 型変換ルール (Color → Hex 等) を削除。変換は利用側が別途コンバータ/専用フィールドで対応。
 - `List<T>` ではなく `T[]` を出力。

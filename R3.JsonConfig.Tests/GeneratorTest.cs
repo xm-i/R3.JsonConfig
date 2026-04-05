@@ -235,10 +235,10 @@ public class MethodCheckConfig {
 		var generatedSource = generatedSources.First().SourceText.ToString();
 
 		// CreateModel メソッドの存在とシグネチャ検証
-		generatedSource.Contains("public static MethodCheckConfig? CreateModel(MethodCheckConfigForJson? json, System.IServiceProvider sp)").ShouldBeTrue("CreateModelメソッドが生成される必要があります");
+		generatedSource.Contains("public static MethodCheckConfig? CreateModel(MethodCheckConfigForJson? json, System.IServiceProvider sp, ReferenceResolver? resolver = null)").ShouldBeTrue("CreateModelメソッドが生成される必要があります");
 
 		// CreateJson メソッドの存在とシグネチャ検証
-		generatedSource.Contains("public static MethodCheckConfigForJson? CreateJson(MethodCheckConfig? model)").ShouldBeTrue("CreateJsonメソッドが生成される必要があります");
+		generatedSource.Contains("public static MethodCheckConfigForJson? CreateJson(MethodCheckConfig? model, ReferenceTracker? tracker = null)").ShouldBeTrue("CreateJsonメソッドが生成される必要があります");
 
 		// CreateModel 内で Value をセットするロジックの存在確認
 		generatedSource.Contains("if (json.Value is { } notNullValue)").ShouldBeTrue("CreateModel内で値の割り当てロジックが生成される必要があります");

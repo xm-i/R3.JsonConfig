@@ -26,6 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\R3.JsonConfig.Generators\R3.JsonConfig.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\R3.JsonConfig.Generators\R3.JsonConfig.Generators.csproj" />
     <ProjectReference Include="..\R3.JsonConfig\R3.JsonConfig.csproj" />
     <ProjectReference Include="..\R3.JsonConfig.Demo.Composition\R3.JsonConfig.Demo.Composition.csproj" />

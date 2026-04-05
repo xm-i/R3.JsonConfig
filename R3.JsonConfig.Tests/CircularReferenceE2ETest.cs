@@ -74,8 +74,8 @@ public class CircularReferenceE2ETest {
 		var dto = CircularParentForJson.CreateJson(parent);
 		var json = JsonSerializer.Serialize(dto);
 
-		json.ShouldContain("\"__id\"");
-		json.ShouldContain("\"__ref\"");
+		json.ShouldContain("\"___Id\"");
+		json.ShouldContain("\"___Ref\"");
 
 		var deserializedDto = JsonSerializer.Deserialize<CircularParentForJson>(json);
 		var restoredParent = CircularParentForJson.CreateModel(deserializedDto, sp);

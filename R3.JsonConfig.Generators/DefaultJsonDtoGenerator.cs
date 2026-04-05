@@ -339,16 +339,14 @@ using R3.JsonConfig;
 {{namespaceLine}}
 {{attrsBuilder.ToString().TrimEnd()}}
 public partial class {{dtoName}} {
-	[JsonPropertyName("__id")]
-	public string? Id { get; set; }
+	public string? ___Id { get; set; }
 
-	[JsonPropertyName("__ref")]
-	public string? Ref { get; set; }
+	public string? ___Ref { get; set; }
 
 	[return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(json))]
 	public static {{modelName}}? CreateModel({{dtoName}}? json, System.IServiceProvider sp, ReferenceResolver? resolver = null) {
 		if (json is null) return null;
-		if (json.Ref is { } @ref) return resolver?.Resolve<{{modelName}}>(@ref) ?? throw new System.InvalidOperationException($"Reference not found: {@ref}");
+		if (json.___Ref is { } @ref) return resolver?.Resolve<{{modelName}}>(@ref) ?? throw new System.InvalidOperationException($"Reference not found: {@ref}");
 		resolver ??= new ReferenceResolver();
 {{createModelBodyBuilderP.ToString().TrimEnd()}}
 	}
@@ -446,11 +444,9 @@ public partial class {{dtoName}} {
 
 		var metadataProps = string.IsNullOrEmpty(inheritance)
 			? $$"""
-				[JsonPropertyName("__id")]
-				public string? Id { get; set; }
+				public string? ___Id { get; set; }
 
-				[JsonPropertyName("__ref")]
-				public string? Ref { get; set; }
+				public string? ___Ref { get; set; }
 			"""
 			: "";
 
@@ -472,11 +468,11 @@ public partial class {{dtoName}} {
 					if(json is null){
 						return null;
 					}
-					if (json.Ref is { } @ref) return resolver?.Resolve<{{modelName}}>(@ref) ?? throw new System.InvalidOperationException($"Reference not found: {@ref}");
+					if (json.___Ref is { } @ref) return resolver?.Resolve<{{modelName}}>(@ref) ?? throw new System.InvalidOperationException($"Reference not found: {@ref}");
 					resolver ??= new ReferenceResolver();
 
 					var model = sp.GetRequiredService<{{modelName}}>();
-					if (json.Id is { } id) resolver.Add(id, model);
+					if (json.___Id is { } id) resolver.Add(id, model);
 			{{createModelBody}}
 					return model;
 				}
@@ -488,11 +484,11 @@ public partial class {{dtoName}} {
 					}
 					tracker ??= new ReferenceTracker();
 					if (tracker.GetOrAddId(model) is { } id) {
-						return new {{dtoName}} { Ref = id };
+						return new {{dtoName}} { ___Ref = id };
 					}
 
 					return new() {
-						Id = tracker.GetId(model),
+						___Id = tracker.GetId(model),
 			{{createJsonLines}}
 					};
 				}

@@ -1,485 +1,276 @@
 # R3.JsonConfig
 
-リアクティブモデル (`ReactiveProperty<T>` / `ObservableList<T>`) を JSON 用 DTO (末尾 `ForJson`) に自動生成するソースジェネレータ。
+R3 (ReactiveProperty) や ObservableCollections を利用したドメインモデルの JSON シリアライズ用 DTO を自動生成する Source Generator です。
 
-## プロジェクト構成
-- `R3.JsonConfig` : 属性とユーティリティ。
-- `R3.JsonConfig.Generators` : 基本ジェネレータ `DefaultJsonDtoGenerator`。
-- `R3.JsonConfig.Demo` : 利用例アプリとモデル。
+---
 
-## 仕組み
-対象属性を付与したモデルクラスに対し、自動で DTO クラス (末尾 `ForJson`) を生成:
-- 公開 setter 付きプロパティ + `ReactiveProperty<T>` + `ObservableList<T>` を解析。
-- `ReactiveProperty<T>` → `T?` もしくは `NestedModelForJson?`。
-- `ObservableList<T>` → `T[]?` もしくは `NestedModelForJson[]?`。
-- ネストされた対象モデルは再帰的に DTO 化（循環参照も自動的に解決）。
-- `___Id` と `___Ref` トークンによるオブジェクトの同一性保持と参照解決。
+## 解決する課題
 
-## 属性
-| 属性 | 対象 | 役割 |
-|------|------|------|
-| `GenerateR3JsonConfigDtoAttribute` | クラス / インターフェース | DTO 生成トリガー |
-| `ExcludePropertyAttribute` | プロパティ | DTO 生成から除外 |
-| `JsonConfigDerivedTypeAttribute` | 具象クラス | ポリモーフィズム用の型識別子を登録 |
+通常のシリアライザ（System.Text.Json 等）でドメインモデルを保存・復元しようとすると、以下のような課題に直面します：
 
-### ExcludePropertyAttribute
-特定のプロパティを DTO に含めたくない場合に使用:
-```csharp
-[GenerateR3JsonConfigDto]
-public class MyModel {
-    public string Name { get; set; } = "";
+- **ReactiveProperty のシリアライズ**: `ReactiveProperty<T>` はラッパー型であるため、そのままでは `.Value` ではなくオブジェクトの内部構造がシリアライズされてしまいます。
+- **循環参照のハンドリング**: 親子関係や相互参照を持つモデルをシリアライズすると、無限再帰が発生して実行時にクラッシュします。
+- **DI（依存性注入）との連携**: コンストラクタインジェクションを利用しているモデルをデシリアライズで復元する際、標準のシリアライザだけではインスタンス化が困難です。
 
-    [ExcludeProperty]
-    public string Secret { get; set; } = ""; // DTO に含まれない
-}
-```
+`R3.JsonConfig` は、Source Generator が最適な DTO を自動生成することで、これらの問題を解決します。
 
-## 生成される API 例
-`ParentModel` → `ParentModelForJson` に以下が生成:
-- プロパティ群 (nullable)。
-- `static ParentModel? CreateModel(ParentModelForJson? json, IServiceProvider sp, ReferenceResolver? resolver = null)` : DI でモデル取得し反映。`resolver` を渡すことで `___Ref` によるインスタンスの再利用が可能。
-- `static ParentModelForJson? CreateJson(ParentModel? model, ReferenceTracker? tracker = null)` : モデルから DTO 作成。`tracker` を渡すことで `___Id` / `___Ref` による循環参照の解決が可能。
+---
 
-## 利用手順
-1. csproj にジェネレータを Analyzer として参照:
+## 主な機能
+
+- **Source Generator による生成**: 実行時のリフレクションを最小化。Native AOT (`JsonSourceGenerationContext`) にも対応した高速な動作。
+- **型マッピング**: `ReactiveProperty<T>` → `T?`、`ObservableList<T>` → `T[]?` のように、JSON で扱いやすい型へ自動的にマッピング。
+- **循環参照のサポート**: 内部的な `___Id` と `___Ref` トークンを用いて、オブジェクトの参照関係を保持したまま保存・復元が可能。
+- **DI コンテナ連携**: 生成される `CreateModel` メソッドが `IServiceProvider` を受け取り、DI 経由でモデルを生成・注入。
+- **ポリモーフィズム対応**: インターフェースや基底クラスをプロパティに持つ場合も、属性指定により派生型の識別と保存が可能。
+
+---
+
+## クイックスタート
+
+### 1. インストール
+`.csproj` にジェネレータを Analyzer として追加します。
+
 ```xml
 <ItemGroup>
-  <ProjectReference Include="..\R3.JsonConfig.Generators\R3.JsonConfig.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  <ProjectReference Include="..\R3.JsonConfig.Generators\R3.JsonConfig.Generators.csproj" 
+                    OutputItemType="Analyzer" 
+                    ReferenceOutputAssembly="false" />
 </ItemGroup>
 ```
-2. モデルへ属性付与:
-```csharp
-[GenerateR3JsonConfigDto]
-public class ParentModel {
-    public string Name { get; set; } = "Default";
-    public ReactiveProperty<string> Title { get; } = new("Hello");
-    public ObservableList<int> Numbers { get; } = new();
-}
-```
-3. 基本的な読み書き:
-```csharp
-var model = sp.GetRequiredService<ParentModel>();
-var dto = ParentModelForJson.CreateJson(model);
-File.WriteAllText("config.json", JsonSerializer.Serialize(dto, new JsonSerializerOptions { WriteIndented = true }));
 
-var loadedDto = JsonSerializer.Deserialize<ParentModelForJson>(File.ReadAllText("config.json"));
-ParentModelForJson.CreateModel(loadedDto, sp);
-```
-### Source Generated SerializerContext を使う場合
-`JsonSerializerContext` の部分クラスを定義して AOT/リフレクションコストを削減できます。
-```csharp
-[JsonSourceGenerationOptions(WriteIndented = true)]
-[JsonSerializable(typeof(ParentModelForJson))]
-public partial class ConfigJsonSerializerContext : JsonSerializerContext { }
-```
-利用例:
-```csharp
-var dto = ParentModelForJson.CreateJson(model);
-var json = JsonSerializer.Serialize(dto, ConfigJsonSerializerContext.Default.ParentModelForJson);
-File.WriteAllText("config.json", json);
-
-var loaded = JsonSerializer.Deserialize(File.ReadAllText("config.json"), ConfigJsonSerializerContext.Default.ParentModelForJson);
-ParentModelForJson.CreateModel(loaded, sp);
-```
-
-### カスタム型に JsonConverter を使う場合
-
-`System.Drawing.Color` のように `[GenerateR3JsonConfigDto]` を付与しない型は、ジェネレータによって **そのままの型** として DTO に出力されます（→ [型の変換ルール](#4-型の変換ルール)）。
-
-このような型を JSON へシリアライズ・デシリアライズするには、`JsonConverter<T>` を実装して `JsonSerializerOptions` または `JsonSourceGenerationOptions` に登録します。
-
-**① JsonConverter を実装する:**
+### 2. モデルの定義
+保存したいモデルに `[GenerateR3JsonConfigDto]` 属性を付与します。
 
 ```csharp
-public class ColorJsonConverter : JsonConverter<Color?> {
-    public override Color? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
-        var hex = reader.GetString()?.TrimStart('#');
-        if (string.IsNullOrWhiteSpace(hex)) return null;
-        var a = byte.Parse(hex[..2], NumberStyles.HexNumber);
-        var r = byte.Parse(hex[2..4], NumberStyles.HexNumber);
-        var g = byte.Parse(hex[4..6], NumberStyles.HexNumber);
-        var b = byte.Parse(hex[6..8], NumberStyles.HexNumber);
-        return Color.FromArgb(a, r, g, b);
-    }
-    public override void Write(Utf8JsonWriter writer, Color? value, JsonSerializerOptions options) {
-        if (value is Color c) writer.WriteStringValue($"#{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}");
-    }
-}
-```
-
-**② JsonSourceGenerationContext に登録する:**
-
-```csharp
-[JsonSourceGenerationOptions(WriteIndented = true, Converters = [typeof(ColorJsonConverter)])]
-[JsonSerializable(typeof(ParentModelForJson))]
-public partial class ConfigJsonSerializerContext : JsonSerializerContext { }
-```
-
-**③ モデルへの適用例と生成される DTO 型:**
-
-| モデル側の型 | 生成される DTO 型 |
-|---|---|
-| `ReactiveProperty<Color?>` | `System.Drawing.Color?` |
-| `ObservableList<Color?>` | `System.Drawing.Color?[]?` |
-| `Color?`（通常プロパティ） | `System.Drawing.Color?` |
-
-```csharp
-[GenerateR3JsonConfigDto]
-public class ParentModel {
-    // Color? は [GenerateR3JsonConfigDto] を持たないので DTO でもそのまま Color? になる
-    public ReactiveProperty<Color?> ColorRp   { get; } = new(Color.Red);
-    public ObservableList<Color?>   ColorList  { get; } = [Color.Red, Color.Green];
-    public Color?                   ColorProp  { get; set; } = Color.Blue;
-}
-```
-
-生成される DTO（抜粋）:
-
-```csharp
-// <auto-generated />
-public partial class ParentModelForJson {
-    public System.Drawing.Color?    ColorRp   { get; set; }
-    public System.Drawing.Color?[]? ColorList { get; set; }
-    public System.Drawing.Color?    ColorProp { get; set; }
-    // ...
-}
-```
-
-> ジェネレータが生成するコード（`CreateModel` / `CreateJson`）は型の変換を担当せず、シリアライズ層は利用側の責務です。
-
----
-
-## ポリモーフィズム (多態性) のサポート
-
-`IPluginConfig` のようなインターフェースや基底クラスをプロパティとして持つ場合、`[JsonConfigDerivedType]` 属性を使用して派生型を登録することで、型に応じた適切なシリアライズ・デシリアライズが可能になります。
-
-### 利用例
-
-**① インターフェースと派生型の定義:**
-
-```csharp
-[GenerateR3JsonConfigDto]
-public interface IPluginConfig { }
-
-[GenerateR3JsonConfigDto]
-[JsonConfigDerivedType("File")]
-public class FilePluginConfig : IPluginConfig {
-    public string FilePath { get; set; } = "";
-}
-
-[GenerateR3JsonConfigDto]
-[JsonConfigDerivedType("Http")]
-public class HttpPluginConfig : IPluginConfig {
-    public string Url { get; set; } = "";
-}
-```
-
-**② モデルでの利用:**
-
-```csharp
-[GenerateR3JsonConfigDto]
-public class ParentModel {
-    // 通常プロパティとして持つ場合
-    public IPluginConfig? Plugin1 { get; set; } = new FilePluginConfig();
-
-    // ReactiveProperty として持つ場合
-    public ReactiveProperty<IPluginConfig?> Plugin2 { get; } = new();
-
-    // ObservableList として複数の多態性オブジェクトを管理する場合
-    public ObservableList<IPluginConfig> PluginList { get; } = [];
-}
-```
-
-### 生成されるコードの動作
-
-ジェネレータは、基底型（`IPluginConfigForJson`）に以下の機能を自動生成します：
-
-1. **STJ 属性の付与**: `[JsonPolymorphic]` と `[JsonDerivedType]` が DTO クラスに付与されます。
-2. **自動ディスパッチ**: `CreateModel` / `CreateJson` メソッド内で、渡されたオブジェクトの実際の型（`File` か `Http` か）を判定し、それぞれの変換メソッドへ適切に振り分けます。
-
-**シリアライズ結果の例 (`config.json`):**
-
-```json
-{
-  "Plugin1": {
-    "___Type": "File",
-    "FilePath": "C:\\logs\\app.log"
-  },
-  "PluginList": [
-    {
-      "___Type": "File",
-      "FilePath": "C:\\logs\\app.log"
-    },
-    {
-      "___Type": "Http",
-      "Url": "https://example.com"
-    }
-  ]
-}
-```
-
-> **注意**: `___Type` プロパティ（型識別子）は、System.Text.Json のポリモーフィズム機能によって自動的に処理されます。
-
----
-
-## ジェネレータ仕様 (DefaultJsonDtoGenerator)
-
-以下は `DefaultJsonDtoGenerator` の詳細な動作仕様です。
-「自分のモデルにどう属性を付ければ、どのような DTO が生成されるか」を把握するためのリファレンスとしてお使いください。
-
-> [!NOTE]
-> 名前空間やクラス名、拡張メソッド等の名前衝突を完全に防止するため、生成されるコード内のすべての型参照とメソッド呼び出しは、`global::` プレフィックス付きの完全修飾名および静的メソッド形式で出力されます。
-> これにより、ユーザー側の `global using` 等の環境設定に左右されない堅牢なソース生成を実現しています。
-
-### 1. 対象クラスの条件
-
-ジェネレータが処理するのは、以下の **すべて** を満たすクラスです。
-
-| 条件 | 詳細 |
-|------|------|
-| クラスまたはインターフェースである | `class` または `interface`。`record`・`struct` は対象外 |
-| 属性が 1 つ以上付与されている | 構文レベルの高速フィルタ |
-| `[GenerateR3JsonConfigDto]` が付与されている | 完全修飾名 `R3.JsonConfig.Attributes.GenerateR3JsonConfigDtoAttribute` と一致すること |
-
-```csharp
+using R3;
+using ObservableCollections;
 using R3.JsonConfig.Attributes;
 
-[GenerateR3JsonConfigDto]   // ← これがトリガー
-public class MyModel { ... }
+[GenerateR3JsonConfigDto]
+public class MySettings {
+    // ReactiveProperty は自動的に内部の型にマッピングされます
+    public ReactiveProperty<string> UserName { get; } = new("Antigravity");
+
+    // ObservableList は配列にマッピングされます
+    public ObservableList<int> Scores { get; } = new();
+
+    // 通常のプロパティ（public setter が必要）
+    public bool IsEnabled { get; set; }
+}
 ```
 
-### 2. 生成される DTO の命名規則
+### 3. 保存と読み込み
+自動生成された `MySettingsForJson` クラスを使用して変換を行います。
 
-| 元のモデル | 生成される DTO | ファイル名 |
-|-----------|---------------|-----------|
-| `MyModel` | `MyModelForJson` | `MyModelForJson.g.cs` |
-| `ChildModel` | `ChildModelForJson` | `ChildModelForJson.g.cs` |
+```csharp
+// 1. モデルから DTO へ変換して保存
+var model = new MySettings();
+var dto = MySettingsForJson.CreateJson(model);
+string json = JsonSerializer.Serialize(dto);
+File.WriteAllText("settings.json", json);
 
-- DTO は元のモデルと **同じ名前空間** に生成されます。
-- `partial class` として生成されるため、追加メンバーを別ファイルで拡張できます。
+// 2. JSON から DTO を経由してモデルを復元
+string loadedJson = File.ReadAllText("settings.json");
+var loadedDto = JsonSerializer.Deserialize<MySettingsForJson>(loadedJson);
 
-### 3. プロパティの収集ルール
-
-ジェネレータはモデルの **public プロパティ** を走査し、以下のルールでフィルタリングします。
-
-```
-モデルの全メンバー
-  │
-  ├─ public でない → スキップ
-  ├─ [ExcludeProperty] 付き → スキップ
-  │
-  ├─ ReactiveProperty<T>  → ✅ 収集 (setter 不要)
-  ├─ ObservableList<T>    → ✅ 収集 (setter 不要)
-  └─ それ以外 (通常プロパティ)
-       ├─ public setter あり → ✅ 収集
-       └─ public setter なし → スキップ
+// CreateModel は IServiceProvider を通じてモデルを生成します
+MySettings restoredModel = MySettingsForJson.CreateModel(loadedDto, serviceProvider)!;
 ```
 
-#### ポイント
+---
 
-- **`ReactiveProperty<T>` / `ObservableList<T>`** は `.Value` や `.Add()` 経由で値を設定するため、**setter の有無は問われません**。
-- **通常プロパティ** は直接代入で値を反映するため、**public setter が必須** です。  
-  `{ get; }` のみ (read-only) や `{ get; private set; }` は対象外になります。
-- **`[ExcludeProperty]`** を付けたプロパティは、型や setter の有無にかかわらず DTO から除外されます。
+## 詳細な仕組みと型変換ルール
 
+ジェネレータは `[GenerateR3JsonConfigDto]` が付与されたモデルクラスを解析し、以下の基準に基づいた DTO（末尾 `ForJson`）を生成します。
+
+### 1. プロパティの収集ルール
+モデル内の **public プロパティ** を走査し、以下の条件に合致するものを DTO の対象として収集します。
+
+| プロパティの種類 | 収集条件 | 特記事項 |
+| :--- | :--- | :--- |
+| **ReactiveProperty<T>** | 常に収集 | getter のみ（Setter なし）でも対応可能 |
+| **ObservableList<T>** | 常に収集 | getter のみ（Setter なし）でも対応可能 |
+| **通常のプロパティ** | **public setter** が必須 | デシリアライズ時に値を代入するため |
+
+- **対象外となるプロパティ**:
+    - `private`, `internal`, `protected` などの public ではないプロパティ。
+    - `{ get; }` のみ、または `{ get; private set; }` の通常のプロパティ。
+    - **`[ExcludeProperty]`** 属性が付与されているプロパティ。
+
+---
+
+### 2. 型マッピングと再帰変換
+収集されたプロパティは、その内部型に応じて以下のルールで DTO 側の型にマッピングされます。すべて JSON での欠損（null）を許容するため、DTO 側の型は一律で **nullable** になります。
+
+| モデル側の型 | DTO 側の型 | 分類 |
+| :--- | :--- | :--- |
+| `ReactiveProperty<T>` | `T?` | **通常型**: そのままの型 |
+| `ReactiveProperty<TModel>` | `TModelForJson?` | **再帰型**: DTO 変換が連鎖 |
+| `ObservableList<T>` | `T[]?` | **配列型**: 要素が通常型ならそのまま配列化 |
+| `ObservableList<TModel>` | `TModelForJson[]?` | **配列×再帰型**: 各要素を DTO 変換して配列化 |
+| `T`（通常プロパティ） | `T?` | **そのままのマッピング** |
+
+#### 再帰変換の流れ
+プロパティの型 `T` 自体に `[GenerateR3JsonConfigDto]` が付与されている場合、ジェネレータはその型を DTO 型（`TForJson`）へ置き替えます。
+これにより、モデルのツリー構造全体が連鎖的に DTO 化され、`CreateJson` / `CreateModel` 内部でも再帰的に変換メソッドが呼び出されます。
+
+> [!NOTE]
+> `Color` のように `[GenerateR3JsonConfigDto]` を持たない外部ライブラリの型は、DTO 上でもそのままの型として出力されます。これらをシリアライズするには別途 `JsonConverter` の登録が必要です。
+
+---
+
+### 3. 生成される DTO の構造
+ジェネレータによって出力されるクラスは以下の仕様を持ちます。
+
+- **命名規則**: `[モデル名]ForJson` という名前で生成されます。
+- **名前空間**: 元のモデルと **全く同じ名前空間** に生成されます。
+- **物理構造**: 全て **`public partial class`** として生成されます。
+    - `partial` であるため、ユーザー側で独自のメソッドやプロパティを追加して拡張することが可能です。
+- **オブジェクト識別子**: 循環参照を解決するためのメタ情報として、すべての DTO クラスに自動的に `string? ___Id` と `string? ___Ref` プロパティが追加されます。
+
+---
+
+## 高度な機能
+
+### 循環参照の解決
+親子で互いに参照し合っている場合でも、標準でシリアライズ可能です。内部的に `___Id` と `___Ref` トークンが発行され、デシリアライズ時に同一のインスタンスとして復元されます。
+
+### ポリモーフィズム（多態性）
+インターフェースや基底クラス（抽象クラス）をプロパティに持つ場合も、属性による識別により型情報を保持したまま保存できます。
+
+#### 1. 属性の付与
+基底型と派生型のそれぞれに適切な属性を付与します。
+
+```csharp
+// 基底型: [GenerateR3JsonConfigDto] を付与
+[GenerateR3JsonConfigDto]
+public interface IEffect { }
+
+// 派生型: [GenerateR3JsonConfigDto] と [JsonConfigDerivedType] を付与
+[GenerateR3JsonConfigDto]
+[JsonConfigDerivedType("Blur")]
+public class BlurEffect : IEffect {
+    public ReactiveProperty<float> Radius { get; } = new(0f);
+}
+```
+
+> [!NOTE]
+> `[JsonConfigDerivedType]` に指定した文字列（型識別子）は、JSON 内の `___Type` プロパティとして出力されます。
+> 各派生型はアプリケーション起動時に `ModuleInitializer` を通じて自動的にレジストリへ登録されます。
+
+#### 2. シリアライズ設定
+ポリモーフィズムを有効にするには、`JsonSerializerOptions` に対して以下の設定（モディファイアの追加）が必要です。
+
+```csharp
+var options = new JsonSerializerOptions() {
+    // 実行時レジストリに登録された派生型情報を追加する設定
+    TypeInfoResolver = MyJsonContext.Default.WithAddedModifier(ForJsonConverterRegistry.ApplyPolymorphism)
+};
+```
+
+これを行わない場合、`___Type` 識別子が JSON に出力されず、デシリアライズ時に実際の型を解決できなくなります。
+
+### カスタム JsonConverter の利用
+`Color` 型のように、ジェネレータ側で DTO 化をサポートしていない型を扱う場合は、System.Text.Json 標準の `JsonConverter` を利用します。
+
+```csharp
+// JsonSourceGenerationContext 等に Converter を登録
+[JsonSourceGenerationOptions(Converters = [typeof(ColorJsonConverter)])]
+[JsonSerializable(typeof(MySettingsForJson))]
+public partial class MyJsonContext : JsonSerializerContext { }
+```
+
+#### 利用方法
+定義した `MyJsonContext` を使用して、リフレクションを最小化したシリアライズ・デシリアライズを行います。ポリモーフィズムを併用する場合は、オプションを介してコンテキストを生成します。
+
+```csharp
+// 1. ポリモーフィズム設定を含んだオプションを作成
+var options = new JsonSerializerOptions(MyJsonContext.Default.Options) {
+    TypeInfoResolver = MyJsonContext.Default.WithAddedModifier(ForJsonConverterRegistry.ApplyPolymorphism)
+};
+// 2. オプションを適用したコンテキストを生成
+var context = new MyJsonContext(options);
+
+// 3. シリアライズの実行（型情報を明示的に渡す）
+string json = JsonSerializer.Serialize(dto, context.MySettingsForJson);
+
+// 4. デシリアライズの実行
+var loadedDto = JsonSerializer.Deserialize(json, context.MySettingsForJson);
+```
+
+---
+
+## 生成されるコードの仕様
+
+`[GenerateR3JsonConfigDto]` を付与したクラスに対し、`obj/` ディレクトリ配下に `[モデル名]ForJson.g.cs` という名前でソースコードが自動生成されます。
+
+### 変換のイメージ（Before / After）
+
+以下のようなドメインモデルを定義した場合の、生成コードの構造です。
+
+#### 元のモデル定義
 ```csharp
 [GenerateR3JsonConfigDto]
-public class Example {
-    // ✅ 収集される: ReactiveProperty (setter 不要)
-    public ReactiveProperty<string> Title { get; } = new("");
-
-    // ✅ 収集される: ObservableList (setter 不要)
-    public ObservableList<int> Numbers { get; } = new();
-
-    // ✅ 収集される: public setter あり
-    public string Name { get; set; } = "";
-
-    // ❌ スキップ: public setter なし
-    public string ReadOnly { get; } = "fixed";
-
-    // ❌ スキップ: private setter
-    public string Internal { get; private set; } = "";
-
-    // ❌ スキップ: ExcludeProperty
-    [ExcludeProperty]
-    public string Secret { get; set; } = "";
+public class MySettings {
+    public ReactiveProperty<string> UserName { get; } = new("");
+    public string Theme { get; set; } = "Dark";
 }
 ```
 
-### 4. 型の変換ルール
-
-収集されたプロパティは、その種類と内部型に応じて DTO 側の型が決まります。  
-すべての DTO プロパティは **nullable** になります（JSON で省略可能にするため）。
-
-#### 4.1 変換マッピング一覧
-
-| モデル側の型 | 内部型の条件 | DTO 側の型 | 分類 |
-|-------------|-------------|-----------|------|
-| `ReactiveProperty<T>` | `T` が通常の型 | `T?` | ReactiveProperty × Plain |
-| `ReactiveProperty<T>` | `T` に `[GenerateR3JsonConfigDto]` あり | `TForJson?` | ReactiveProperty × ForJson |
-| `ObservableList<T>` | `T` が通常の型 | `T[]?` | ObservableList × Plain |
-| `ObservableList<T>` | `T` に `[GenerateR3JsonConfigDto]` あり | `TForJson[]?` | ObservableList × ForJson |
-| `T`（通常プロパティ） | `T` が通常の型 | `T?` | Plain × Plain |
-| `T`（通常プロパティ） | `T` に `[GenerateR3JsonConfigDto]` あり | `TForJson?` | Plain × ForJson |
-
-> **JsonConverter が必要な型について**  
-> `Color` など `[GenerateR3JsonConfigDto]` を持たない型は上表の「通常の型（Plain）」として扱われます。  
-> DTO 側でも同じ型のまま出力されるため、シリアライズには別途 `JsonConverter<T>` を `JsonSerializerOptions` に登録してください（→ [カスタム型に JsonConverter を使う場合](#カスタム型に-jsonconverter-を使う場合)）。
-
-#### 4.2 具体例
-
-以下のモデル定義に対して:
-
+#### 自動生成されるコードのイメージ
 ```csharp
-[GenerateR3JsonConfigDto]
-public class ParentModel {
-    public ReactiveProperty<string> StringRp { get; } = new("Default");
-    public ReactiveProperty<ChildModel> ChildRp { get; } = new();
-    public ObservableList<int> IntArray { get; } = [];
-    public ObservableList<ChildModel> ChildArray { get; } = [];
-    public string StringProperty { get; set; } = "";
-    public ChildModel? ChildProperty { get; set; }
+// MySettingsForJson.g.cs (抜粋)
+public partial class MySettingsForJson {
+    public string? ___Id { get; set; }
+    public string? ___Ref { get; set; }
+
+    public string? UserName { get; set; }
+    public string? Theme { get; set; }
+
+    // DTO からモデルへの変換
+    public static MySettings? CreateModel(MySettingsForJson? json, IServiceProvider sp, ReferenceResolver? resolver = null) {
+        if (json is null) return null;
+        if (json.___Ref is { } @ref) return resolver?.Resolve<MySettings>(@ref);
+
+        resolver ??= new ReferenceResolver();
+        var model = sp.GetRequiredService<MySettings>();
+        if (json.___Id is { } id) resolver.Add(id, model);
+
+        // 各プロパティの値を反映
+        if (json.UserName is { } v1) model.UserName.Value = v1;
+        if (json.Theme is { } v2) model.Theme = v2;
+
+        return model;
+    }
+
+    // モデルから DTO への変換
+    public static MySettingsForJson? CreateJson(MySettings? model, ReferenceTracker? tracker = null) {
+        if (model is null) return null;
+
+        tracker ??= new ReferenceTracker();
+        if (tracker.GetOrAddId(model) is { } refId) {
+            return new MySettingsForJson { ___Ref = refId };
+        }
+
+        return new MySettingsForJson {
+            ___Id = tracker.GetId(model),
+            UserName = model.UserName.Value,
+            Theme = model.Theme
+        };
+    }
 }
-
-[GenerateR3JsonConfigDto]
-public class ChildModel {
-    public string Name { get; set; } = "ChildName";
-}
 ```
 
-以下の DTO が生成されます:
+---
 
-```csharp
-// ParentModelForJson.g.cs (自動生成)
-public partial class ParentModelForJson {
-    public string?             StringRp       { get; set; }  // ReactiveProperty<string> → string?
-    public ChildModelForJson?  ChildRp        { get; set; }  // ReactiveProperty<ChildModel> → ChildModelForJson?
-    public int[]?              IntArray       { get; set; }  // ObservableList<int> → int[]?
-    public ChildModelForJson[]? ChildArray    { get; set; }  // ObservableList<ChildModel> → ChildModelForJson[]?
-    public string?             StringProperty { get; set; }  // string → string?
-    public ChildModelForJson?  ChildProperty  { get; set; }  // ChildModel? → ChildModelForJson?
+## 注意事項と制限事項
 
-    // + CreateModel / CreateJson メソッド (後述)
-}
+- **サポート対象**: `class` および `interface` のみが対象です。`record` や `struct` には非対応です。
+- **デシリアライズの要件**: 通常のプロパティは `public setter` を持っている必要があります。
+- **DI 前提**: `CreateModel` は `IServiceProvider` を利用してインスタンスを生成する設計になっています。
 
-// ChildModelForJson.g.cs (自動生成)
-public partial class ChildModelForJson {
-    public string? Name { get; set; }
-
-    // + CreateModel / CreateJson メソッド
-}
-```
-
-#### 4.3 ネストされたモデルの再帰変換
-
-型 `T` 自体に `[GenerateR3JsonConfigDto]` が付与されている場合、ジェネレータはその型を **再帰的に DTO 化** します。  
-つまり `ChildModel` → `ChildModelForJson` への変換が自動的に行われ、`CreateModel` / `CreateJson` 内部でもネストされた DTO の変換メソッドが呼び出されます。
-
-### 5. 自動生成される変換メソッド
-
-各 DTO には以下の 2 つの `static` メソッドが生成されます。
-
-#### 5.1 `CreateModel` — JSON DTO → ドメインモデル
-
-```csharp
-[return: NotNullIfNotNull(nameof(json))]
-public static ParentModel? CreateModel(ParentModelForJson? json, IServiceProvider sp, ReferenceResolver? resolver = null);
-```
-
-| 項目 | 説明 |
-|------|------|
-| 目的 | JSON からデシリアライズした DTO をドメインモデルに変換する |
-| モデルの生成方法 | `sp.GetRequiredService<T>()` で DI コンテナからモデルを取得 |
-| null 処理 | `json` が `null` なら `null` を返す (`[NotNullIfNotNull]`) |
-
-**プロパティ種別ごとの反映ロジック:**
-
-| プロパティ種別 | 反映方法 |
-|--------------|---------|
-| 通常プロパティ | `model.Prop = value;` で直接代入 |
-| `ReactiveProperty<T>` | `model.Prop.Value = value;` で Value を更新 |
-| `ObservableList<T>` | `model.Prop.Clear()` → `model.Prop.Add(item)` でリストを再構築 |
-| ネストされた ForJson 型 | 代入値が `TForJson.CreateModel(e, ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider)` に置き換わる |
-
-> **DI の利用について**: `CreateModel` は `IServiceProvider` を引数に受け取ります。  
-> これにより、モデルのインスタンス生成を DI コンテナに委譲できます（コンストラクタインジェクションが必要なモデルに対応）。  
-> ネストされたモデルの変換時には `ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider` で**新しいスコープ**が作成されます。
-
-#### 5.2 `CreateJson` — ドメインモデル → JSON DTO
-
-```csharp
-[return: NotNullIfNotNull(nameof(model))]
-public static ParentModelForJson? CreateJson(ParentModel? model, ReferenceTracker? tracker = null);
-```
-
-| 項目 | 説明 |
-|------|------|
-| 目的 | ドメインモデルを JSON シリアライズ用の DTO に変換する |
-| null 処理 | `model` が `null` なら `null` を返す (`[NotNullIfNotNull]`) |
-| DI 不要 | モデル → DTO 方向は DI を必要としない |
-
-**プロパティ種別ごとの変換ロジック:**
-
-| プロパティ種別 | 変換式 |
-|--------------|-------|
-| 通常プロパティ | `model.Prop` (そのまま) |
-| `ReactiveProperty<T>` | `model.Prop.Value` |
-| `ObservableList<T>` | `Enumerable.ToArray(model.Prop)` |
-| ネストされた ForJson 型 (通常) | `TForJson.CreateJson(model.Prop)` |
-| ネストされた ForJson 型 (ReactiveProperty) | `TForJson.CreateJson(model.Prop.Value)` |
-| ネストされた ForJson 型 (ObservableList) | `Enumerable.ToArray(Enumerable.Select(model.Prop, x => TForJson.CreateJson(x)))` |
-
-#### 5.3 オブジェクトの同一性保持と参照解決
-
-深い階層を持つオブジェクトグラフや循環参照を含むモデルを扱うため、DTO は内部的に `___Id` と `___Ref` トークンを使用します。
-
-- **`CreateJson` (シリアライズ時)**: `ReferenceTracker` を介してインスタンスの同一性を管理します。同一のインスタンスが複数回出現した場合、2回目以降は実データの代わりに `___Ref` (ID参照) のみを含む DTO を生成し、無限再帰を防ぎます。
-- **`CreateModel` (デシリアライズ時)**: `ReferenceResolver` を介して、`___Id` で登録されたインスタンスを `___Ref` から復元します。これにより、JSON 上で共有されていたオブジェクト関係がモデル上でも正しく再現されます。
-
-> **補足**: 引数の `tracker` / `resolver` を省略した場合は、変換の開始時に内部で自動的に新規インスタンスが作成されます。
-
-### 6. 全体フロー図
-
-```
-┌──────────────────────┐    シリアライズ     ┌───────────────────────┐
-│   ParentModel        │ ──────────────────→ │  ParentModelForJson   │
-│  (ドメインモデル)      │   CreateJson()     │  (JSON DTO)           │
-│                      │                     │                       │
-│  .StringRp.Value     │ ──→                 │  .StringRp  : string? │
-│  .ChildRp.Value      │ ──→ CreateJson()    │  .ChildRp   : ChildModelForJson? |
-│  .IntArray           │ ──→ .ToArray()      │  .IntArray  : int[]?  │
-│  .ChildArray         │ ──→ Select+CreateJson│ .ChildArray: ChildModelForJson[]? |
-│  .StringProperty     │ ──→                 │  .StringProperty: string? │
-│  .ChildProperty      │ ──→ CreateJson()    │  .ChildProperty: ChildModelForJson? |
-└──────────────────────┘                     └───────────────────────┘
-                                                       │
-                                                       │ JsonSerializer
-                                                       ▼
-                                                   config.json
-                                                       │
-                                                       │ JsonSerializer
-                                                       ▼
-┌──────────────────────┐   デシリアライズ     ┌───────────────────────┐
-│   ParentModel        │ ←────────────────── │  ParentModelForJson   │
-│  (DI で取得)          │  CreateModel(sp)    │  (JSON DTO)           │
-└──────────────────────┘                     └───────────────────────┘
-```
-
-## 変更点 (以前の Convert 機能撤廃後)
-- 型変換ルール (Color → Hex 等) を削除。変換は利用側が別途コンバータ/専用フィールドで対応。
-- `List<T>` ではなく `T[]` を出力。
-
-## 制限事項・注意事項
-
-- **Null 許容性の単純化**: DTO 側のプロパティは、元の型に関わらず全て nullable として生成されます。
-- **型メタ情報の不完全性**: `readonly` や `init` 専用プロパティ、コンストラクタ引数による初期化ロジックなどは完全には反映されません（`CreateModel` 時は DI コンテナからの取得とプロパティ代入に基づきます）。
-- **パフォーマンス**: 大規模なオブジェクトグラフや深い階層を持つ構成では、再帰呼び出しと参照トラッキングによる代入コストが発生します。
-
-## 開発
-```bash
- dotnet build
-```
-生成コードは `obj/Debug/net*/generated/` 下。
+---
 
 ## ライセンス
-検討中。
+本プロジェクトは MIT ライセンスの下で公開されています。

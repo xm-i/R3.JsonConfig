@@ -1460,7 +1460,7 @@ public class GeneratorSpecTest {
 
 	/// <summary>
 	/// [JsonConfigDerivedType] を持つ基底型（インターフェース/クラス）から、
-	/// STJ のポリモーフィック属性を持つ DTO が生成されることを検証する。
+	/// STJ のポリモーフィック属性の代わりとなる仮想メソッドや委譲ロジックを持つ DTO が生成されることを検証する。
 	/// </summary>
 	[Fact]
 	public async Task PolymorphicBase_GeneratesDtoWithStjAttributes() {
@@ -1487,13 +1487,13 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "IBaseForJson.g.cs")
 			.SourceText.ToString();
 
-		code.ShouldContain("[global::System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = \"___Type\")]");
-		code.ShouldContain("[global::System.Text.Json.Serialization.JsonDerivedType(typeof(global::TestNamespace.SubAForJson), \"A\")]");
-		code.ShouldContain("[global::System.Text.Json.Serialization.JsonDerivedType(typeof(global::TestNamespace.SubBForJson), \"B\")]");
+		code.ShouldContain("protected virtual global::TestNamespace.IBase CreateModelCore");
+		code.ShouldContain("return json.CreateModelCore(sp, resolver)");
+		code.ShouldContain("global::R3.JsonConfig.ForJsonConverterRegistry.CreateJson<global::TestNamespace.IBase, global::TestNamespace.IBaseForJson>");
 	}
 
 	/// <summary>
-	/// ポリモーフィックな基底型の CreateModel/CreateJson が、派生型へのディスパッチロジックを持つことを検証する。
+	/// ポリモーフィックな派生クラスが、ModuleInitializer による登録ロジックを生成することを検証する。
 	/// </summary>
 	[Fact]
 	public async Task PolymorphicBase_GeneratesDispatchLogic() {
@@ -1513,19 +1513,14 @@ public class GeneratorSpecTest {
 		var (runResult, _) = await TestHelper.RunGenerator(source);
 		var code = runResult.Results
 			.SelectMany(r => r.GeneratedSources)
-			.First(s => s.HintName == "IBaseForJson.g.cs")
+			.First(s => s.HintName == "SubAForJson.g.cs")
 			.SourceText.ToString();
 
 		// CreateModel のディスパッチ
-		code.ShouldContain("if (json is global::TestNamespace.SubAForJson e_global_TestNamespace_SubA)");
-		code.ShouldContain("return global::TestNamespace.SubAForJson.CreateModel(e_global_TestNamespace_SubA, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver)");
-
-		// CreateJson のディスパッチ
-		code.ShouldContain("if (model is global::TestNamespace.SubA m_global_TestNamespace_SubA)");
-		code.ShouldContain("return global::TestNamespace.SubAForJson.CreateJson(m_global_TestNamespace_SubA, tracker)");
-
-		// 未知の型へのガード
-		code.ShouldContain("throw new global::System.InvalidOperationException($\"Unknown derived type: {json?.GetType().FullName}\");");
+		code.ShouldContain("protected override global::TestNamespace.IBase CreateModelCore");
+		code.ShouldContain("SubAForJsonRuntimeRegistration");
+		code.ShouldContain("[global::System.Runtime.CompilerServices.ModuleInitializer]");
+		code.ShouldContain("global::R3.JsonConfig.ForJsonConverterRegistry.Register<");
 	}
 
 	/// <summary>

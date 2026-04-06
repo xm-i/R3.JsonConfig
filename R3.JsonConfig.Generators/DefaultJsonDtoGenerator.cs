@@ -262,7 +262,6 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 	/// 派生型が存在するプロジェクトでポリモーフィックな ForJson クラスを生成する。
 	/// </summary>
 	private void Execute(SourceProductionContext context, Compilation compilation, ImmutableArray<INamedTypeSymbol?> symbols, ImmutableArray<DerivedTypeEntry?> entries) {
-		// 派生型エントリを基底型 FQN でグループ化
 		var derivedMap = new Dictionary<string, List<(string TypeName, string StringKey)>>();
 		foreach (var entry in entries) {
 			if (entry is null) {
@@ -275,52 +274,13 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 			list.Add((entry.DerivedTypeName, entry.TypeDiscriminator));
 		}
 
-		// 現在のコンパイルで処理済みの基底型 FQN を追跡
-		var handledBaseTypes = new HashSet<string>();
-
 		foreach (var symbol in symbols) {
 			if (symbol is null) {
 				continue;
 			}
 
-			var modelFullName = symbol.ToDisplayString(FullyQualifiedFormat);
-
-			// インターフェースまたは抽象クラスで、現在のコンパイル内に派生型が存在しない場合はスキップ。
-			// 派生型が別プロジェクトにある場合、そのプロジェクトのジェネレーターがポリモーフィック DTO を生成する。
-			if ((symbol.TypeKind == Microsoft.CodeAnalysis.TypeKind.Interface || symbol.IsAbstract)
-				&& !derivedMap.ContainsKey(modelFullName)) {
-				continue;
-			}
-
-			handledBaseTypes.Add(modelFullName);
-
 			try {
 				this.GenerateForSymbol(context, symbol, derivedMap);
-			} catch (Exception ex) {
-				context.ReportDiagnostic(Diagnostic.Create(new("RJG001", "JsonDtoGenerator Error", "{0}", "JsonDtoGenerator", DiagnosticSeverity.Warning, true), Location.None, ex.Message));
-			}
-		}
-
-		// 参照先アセンブリの基底型に対するポリモーフィック ForJson を生成。
-		// 現在のコンパイルに [JsonConfigDerivedType] が付与された派生型があり、
-		// その基底型が参照先アセンブリにある（= symbols に含まれない）場合に該当する。
-		foreach (var kvp in derivedMap) {
-			if (handledBaseTypes.Contains(kvp.Key)) {
-				continue;
-			}
-
-			// global:: プレフィックスを除去してメタデータ名に変換
-			var metadataName = kvp.Key;
-			if (metadataName.StartsWith("global::")) {
-				metadataName = metadataName.Substring("global::".Length);
-			}
-			var baseSymbol = compilation.GetTypeByMetadataName(metadataName);
-			if (baseSymbol is null) {
-				continue;
-			}
-
-			try {
-				this.GenerateForSymbol(context, baseSymbol, derivedMap);
 			} catch (Exception ex) {
 				context.ReportDiagnostic(Diagnostic.Create(new("RJG001", "JsonDtoGenerator Error", "{0}", "JsonDtoGenerator", DiagnosticSeverity.Warning, true), Location.None, ex.Message));
 			}
@@ -346,14 +306,12 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 		var modelName = modelSymbol.Name;
 		var dtoName = modelName + "ForJson";
 
-		// ポリモーフィック対応の解析: 事前収集された派生型マップから派生型リストを取得
 		var modelFullName = modelSymbol.ToDisplayString(FullyQualifiedFormat);
 		var dtoFullName = modelFullName + "ForJson";
-		derivedMap.TryGetValue(modelFullName, out var derivedTypes);
 
 		// ケース1: ポリモーフィックな基底クラス/インターフェースの場合
-		if (derivedTypes is { Count: > 0 }) {
-			var polymorphicCode = this.BuildPolymorphicDto(modelSymbol, modelFullName, dtoFullName, derivedTypes);
+		if (modelSymbol.TypeKind == Microsoft.CodeAnalysis.TypeKind.Interface || modelSymbol.IsAbstract) {
+			var polymorphicCode = this.BuildPolymorphicDto(modelSymbol, modelFullName, dtoFullName, new List<(string TypeName, string StringKey)>());
 			context.AddSource($"{dtoName}.g.cs", SourceText.From(polymorphicCode, Encoding.UTF8));
 			return;
 		}
@@ -474,58 +432,33 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 		var ns = modelSymbol.ContainingNamespace.IsGlobalNamespace ? "" : modelSymbol.ContainingNamespace.ToDisplayString();
 		var namespaceLine = string.IsNullOrWhiteSpace(ns) ? string.Empty : $"namespace {ns};";
 
-		var createModelBodyBuilderP = new StringBuilder();
-		var createJsonLinesBuilderP = new StringBuilder();
-
-		foreach (var dt in derivedTypes) {
-			var derivedDto = dt.TypeName + "ForJson";
-			var varNameM = "e_" + dt.TypeName.Replace("::", "_").Replace(".", "_");
-			createModelBodyBuilderP.AppendLine($$"""
-		if (json is {{derivedDto}} {{varNameM}}) {
-			return {{derivedDto}}.CreateModel({{varNameM}}, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver);
-		}
-""");
-
-			var varNameJ = "m_" + dt.TypeName.Replace("::", "_").Replace(".", "_");
-			createJsonLinesBuilderP.AppendLine($$"""
-		if (model is {{dt.TypeName}} {{varNameJ}}) {
-			return {{derivedDto}}.CreateJson({{varNameJ}}, tracker);
-		}
-""");
-		}
-		createModelBodyBuilderP.AppendLine("\t\tthrow new global::System.InvalidOperationException($\"Unknown derived type: {json?.GetType().FullName}\");");
-		createJsonLinesBuilderP.AppendLine("\t\tthrow new global::System.InvalidOperationException($\"Unknown derived type: {model?.GetType().FullName}\");");
-
-		var attrsBuilder = new StringBuilder();
-		attrsBuilder.AppendLine("\t[global::System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = \"___Type\")]");
-		foreach (var dt in derivedTypes) {
-			attrsBuilder.AppendLine($"\t[global::System.Text.Json.Serialization.JsonDerivedType(typeof({dt.TypeName}ForJson), \"{dt.StringKey}\")]");
-		}
-
 		return $$"""
 // <auto-generated />
 #nullable enable
 
 {{namespaceLine}}
-{{attrsBuilder.ToString().TrimEnd()}}
 public partial class {{modelSymbol.Name}}ForJson {
 	public string? ___Id { get; set; }
 
 	public string? ___Ref { get; set; }
+
+	protected virtual {{modelFullName}} CreateModelCore(global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver resolver) {
+		throw new global::System.InvalidOperationException($"Unknown derived type: {this.GetType().FullName}");
+	}
 
 	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(json))]
 	public static {{modelFullName}}? CreateModel({{dtoFullName}}? json, global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver? resolver = null) {
 		if (json is null) return null;
 		if (json.___Ref is { } @ref) return resolver?.Resolve<{{modelFullName}}>(@ref) ?? throw new global::System.InvalidOperationException($"Reference not found: {@ref}");
 		resolver ??= new global::R3.JsonConfig.ReferenceResolver();
-{{createModelBodyBuilderP.ToString().TrimEnd()}}
+		return json.CreateModelCore(sp, resolver);
 	}
 
 	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(model))]
 	public static {{dtoFullName}}? CreateJson({{modelFullName}}? model, global::R3.JsonConfig.ReferenceTracker? tracker = null) {
 		if(model is null) return null;
 		tracker ??= new global::R3.JsonConfig.ReferenceTracker();
-{{createJsonLinesBuilderP.ToString().TrimEnd()}}
+		return global::R3.JsonConfig.ForJsonConverterRegistry.CreateJson<{{modelFullName}}, {{dtoFullName}}>(model, tracker);
 	}
 }
 """;
@@ -620,15 +553,45 @@ public partial class {{modelSymbol.Name}}ForJson {
 			"""
 			: "";
 
-		return $$"""
-// <auto-generated />
-#nullable enable
+		var registrationCode = "";
+		// DerivedTypeAttributeName returns "R3.JsonConfig.Attributes.JsonConfigDerivedTypeAttribute"
+		var isDerived = modelSymbol.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == this.DerivedTypeAttributeName);
+		if (isDerived && !string.IsNullOrEmpty(inheritance)) {
+			var discriminator = "Unknown";
+			foreach (var attr in modelSymbol.GetAttributes()) {
+				if (attr.AttributeClass?.ToDisplayString() == this.DerivedTypeAttributeName) {
+					if (attr.ConstructorArguments.Length == 1 && attr.ConstructorArguments[0].Value is string s) {
+						discriminator = s;
+						break;
+					}
+				}
+			}
 
-{{namespaceLine}}
-public partial class {{modelSymbol.Name}}ForJson{{inheritance}} {
-{{metadataProps}}
+			// extract base model mapping to registry
+			var baseTypeFullName = this.FindGenerateJsonDtoBaseType(modelSymbol);
+			if (baseTypeFullName != null) {
+				registrationCode = $$"""
 
-{{propLines}}
+internal static partial class {{modelSymbol.Name}}ForJsonRuntimeRegistration {
+	[global::System.Runtime.CompilerServices.ModuleInitializer]
+	public static void Register() {
+		global::R3.JsonConfig.ForJsonConverterRegistry.Register<
+			{{baseTypeFullName}},
+			{{baseTypeFullName}}ForJson,
+			{{modelFullName}},
+			{{dtoFullName}}>("{{discriminator}}", (m, t) => {{modelSymbol.Name}}ForJson.CreateJson(m, t));
+	}
+}
+""";
+			}
+		}
+
+		var createModelCoreVisibility = string.IsNullOrEmpty(inheritance) ? "public" : "protected override";
+		var resolveMethod = string.IsNullOrEmpty(inheritance) ? "CreateModel" : "CreateModelCore";
+		var resolveBaseTypeFqn = string.IsNullOrEmpty(inheritance) ? modelFullName : this.FindGenerateJsonDtoBaseType(modelSymbol) ?? string.Empty;
+
+		var startMethodModifiers = string.IsNullOrEmpty(inheritance) ?
+		$$"""
 	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(json))]
 	public static {{modelFullName}}? CreateModel({{dtoFullName}}? json, global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver? resolver = null) {
 		if(json is null){
@@ -637,11 +600,30 @@ public partial class {{modelSymbol.Name}}ForJson{{inheritance}} {
 		if (json.___Ref is { } @ref) return resolver?.Resolve<{{modelFullName}}>(@ref) ?? throw new global::System.InvalidOperationException($"Reference not found: {@ref}");
 		resolver ??= new global::R3.JsonConfig.ReferenceResolver();
 
+""" :
+		$$"""
+	{{createModelCoreVisibility}} {{resolveBaseTypeFqn}} {{resolveMethod}}(global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver resolver) {
+		var json = this;
+
+""";
+
+		var returns = string.IsNullOrEmpty(inheritance) ? "\t\treturn model;\n\t}" : "\t\treturn model;\n\t}";
+
+
+		var code = $$"""
+// <auto-generated />
+#nullable enable
+
+{{namespaceLine}}
+public partial class {{modelSymbol.Name}}ForJson{{inheritance}} {
+{{metadataProps}}
+
+{{propLines}}
+{{startMethodModifiers}}
 		var model = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<{{modelFullName}}>(sp);
 		if (json.___Id is { } id) resolver.Add(id, model);
 {{createModelBody}}
-		return model;
-	}
+{{returns}}
 
 	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(model))]
 	public static {{dtoFullName}}? CreateJson({{modelFullName}}? model, global::R3.JsonConfig.ReferenceTracker? tracker = null) {
@@ -659,6 +641,8 @@ public partial class {{modelSymbol.Name}}ForJson{{inheritance}} {
 		};
 	}
 }
+{{registrationCode}}
 """;
+		return code;
 	}
 }

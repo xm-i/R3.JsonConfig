@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,11 +20,18 @@ public class Program {
 
 		var pm = serviceProvider.GetRequiredService<ParentModel>();
 
+		// SourceGenerator で生成済みの既定設定を引き継ぎつつ、
+		// 実行時レジストリのポリモーフィズム解決をモディファイアとして合成する。
+		var options = new JsonSerializerOptions(ConfigJsonSerializerContext.Default.Options) {
+			TypeInfoResolver = ConfigJsonSerializerContext.Default.WithAddedModifier(global::R3.JsonConfig.ForJsonConverterRegistry.ApplyPolymorphism)
+		};
+		var context = new ConfigJsonSerializerContext(options);
+
 		if (File.Exists("config.json")) {
 			var json = File.ReadAllText("config.json");
-			var model = JsonSerializer.Deserialize(json, ConfigJsonSerializerContext.Default.ParentModelForJson);
+			var model = JsonSerializer.Deserialize(json, context.ParentModelForJson);
 		} else {
-			var json = JsonSerializer.Serialize(ParentModelForJson.CreateJson(pm), ConfigJsonSerializerContext.Default.ParentModelForJson);
+			var json = JsonSerializer.Serialize(ParentModelForJson.CreateJson(pm), context.ParentModelForJson);
 			File.WriteAllText("config.json", json);
 		}
 	}

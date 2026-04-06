@@ -6,7 +6,10 @@ using R3.JsonConfig.Demo.Entity2;
 
 namespace R3.JsonConfig.Demo;
 
-[JsonSourceGenerationOptions(WriteIndented = true, Converters = [typeof(ColorJsonConverter)])]
+[JsonSourceGenerationOptions(
+	WriteIndented = true,
+	Converters = [typeof(ColorJsonConverter)]
+)]
 [JsonSerializable(typeof(ParentModelForJson))]
 [JsonSerializable(typeof(IPluginConfigForJson))]
 [JsonSerializable(typeof(FilePluginConfigForJson))]

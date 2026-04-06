@@ -20,6 +20,7 @@ public static class TestHelper {
 			MetadataReference.CreateFromFile(typeof(ObservableCollections.ObservableList<>).Assembly.Location),
 			MetadataReference.CreateFromFile(typeof(R3.ReactiveProperty<>).Assembly.Location),
 			MetadataReference.CreateFromFile(typeof(R3.JsonConfig.Attributes.GenerateR3JsonConfigDtoAttribute).Assembly.Location),
+			MetadataReference.CreateFromFile(typeof(R3.JsonConfig.ForJsonConverterRegistry).Assembly.Location),
 		};
 
 		var compilation = CSharpCompilation.Create(

@@ -1,10 +1,12 @@
 using System.Drawing;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 using Microsoft.Extensions.DependencyInjection;
 
 using R3.JsonConfig.Demo.Composition.Store;
-using R3.JsonConfig.Demo.Entity;
+using R3.JsonConfig.Demo.Entity1;
+using R3.JsonConfig.Demo.Entity2;
 
 using Shouldly;
 
@@ -22,12 +24,18 @@ public class JsonSerializationE2ETest {
 		return services.BuildServiceProvider();
 	}
 
+	private static JsonSerializerOptions CreateOptions() {
+		var options = new JsonSerializerOptions(TestJsonSerializerContext.Default.Options);
+		options.TypeInfoResolver = TestJsonSerializerContext.Default.WithAddedModifier(global::R3.JsonConfig.ForJsonConverterRegistry.ApplyPolymorphism);
+		return options;
+	}
+
 	[Fact]
 	public void Serialize_DefaultModel_ContainsExpectedDefaults() {
 		var model = new ParentModel();
 
 		var forJson = ParentModelForJson.CreateJson(model);
-		var json = JsonSerializer.Serialize(forJson, TestJsonSerializerContext.Default.ParentModelForJson);
+		var json = JsonSerializer.Serialize(forJson, typeof(ParentModelForJson), CreateOptions());
 
 		json.ShouldNotBeNullOrWhiteSpace();
 		json.ShouldContain("\"StringRp\": \"DefaultString\"");
@@ -47,7 +55,7 @@ public class JsonSerializationE2ETest {
 		model.ChildArray.Add(new ChildModel { Name = "ArrayChild" });
 
 		var forJson = ParentModelForJson.CreateJson(model);
-		var json = JsonSerializer.Serialize(forJson, TestJsonSerializerContext.Default.ParentModelForJson);
+		var json = JsonSerializer.Serialize(forJson, typeof(ParentModelForJson), CreateOptions());
 
 		json.ShouldNotBeNullOrWhiteSpace();
 		json.ShouldContain("\"StringRp\": \"TestString\"");
@@ -62,21 +70,21 @@ public class JsonSerializationE2ETest {
 	[Fact]
 	public void Deserialize_FullJson_ProducesCorrectModel() {
 		var json = """
-        {
-            "StringRp": "FromJson",
-            "ColorRp": "#FF112233",
-            "ChildRp": { "Name": "JsonChild" },
-            "IntArray": [5, 10, 15],
-            "ColorArray": ["#FFAABBCC"],
-            "ChildArray": [{ "Name": "JsonArrayChild" }],
-            "StringProperty": "JsonStringProp",
-            "ColorProperty": "#FF445566",
-            "ChildProperty": { "Name": "JsonDirectChild" }
-        }
-        """;
+		{
+			"StringRp": "FromJson",
+			"ColorRp": "#FF112233",
+			"ChildRp": { "Name": "JsonChild" },
+			"IntArray": [5, 10, 15],
+			"ColorArray": ["#FFAABBCC"],
+			"ChildArray": [{ "Name": "JsonArrayChild" }],
+			"StringProperty": "JsonStringProp",
+			"ColorProperty": "#FF445566",
+			"ChildProperty": { "Name": "JsonDirectChild" }
+		}
+		""";
 		var sp = CreateServiceProvider();
 
-		var forJson = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var forJson = (ParentModelForJson)JsonSerializer.Deserialize(json, typeof(ParentModelForJson), CreateOptions())!;
 		forJson.ShouldNotBeNull();
 		var model = ParentModelForJson.CreateModel(forJson, sp);
 
@@ -106,13 +114,13 @@ public class JsonSerializationE2ETest {
 	[Fact]
 	public void Deserialize_PartialJson_OnlyOverridesSpecifiedFields() {
 		var json = """
-        {
-            "StringRp": "PartialOverride"
-        }
-        """;
+		{
+			"StringRp": "PartialOverride"
+		}
+		""";
 		var sp = CreateServiceProvider();
 
-		var forJson = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var forJson = (ParentModelForJson)JsonSerializer.Deserialize(json, typeof(ParentModelForJson), CreateOptions())!;
 		forJson.ShouldNotBeNull();
 		var model = ParentModelForJson.CreateModel(forJson, sp);
 
@@ -138,8 +146,8 @@ public class JsonSerializationE2ETest {
 		original.ChildArray.Add(new ChildModel { Name = "RoundTripArrayChild2" });
 
 		var forJson = ParentModelForJson.CreateJson(original);
-		var json = JsonSerializer.Serialize(forJson, TestJsonSerializerContext.Default.ParentModelForJson);
-		var deserialized = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var json = JsonSerializer.Serialize(forJson, typeof(ParentModelForJson), CreateOptions());
+		var deserialized = (ParentModelForJson)JsonSerializer.Deserialize(json, typeof(ParentModelForJson), CreateOptions())!;
 		deserialized.ShouldNotBeNull();
 		var restored = ParentModelForJson.CreateModel(deserialized, sp);
 
@@ -174,7 +182,7 @@ public class JsonSerializationE2ETest {
 		var json = "{}";
 		var sp = CreateServiceProvider();
 
-		var forJson = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var forJson = (ParentModelForJson)JsonSerializer.Deserialize(json, typeof(ParentModelForJson), CreateOptions())!;
 		forJson.ShouldNotBeNull();
 		var model = ParentModelForJson.CreateModel(forJson, sp);
 
@@ -217,8 +225,8 @@ public class JsonSerializationE2ETest {
 		var fileDto = IPluginConfigForJson.CreateJson(filePlugin);
 		var httpDto = IPluginConfigForJson.CreateJson(httpPlugin);
 
-		var fileJson = JsonSerializer.Serialize(fileDto, TestJsonSerializerContext.Default.IPluginConfigForJson);
-		var httpJson = JsonSerializer.Serialize(httpDto, TestJsonSerializerContext.Default.IPluginConfigForJson);
+		var fileJson = JsonSerializer.Serialize(fileDto, typeof(IPluginConfigForJson), CreateOptions());
+		var httpJson = JsonSerializer.Serialize(httpDto, typeof(IPluginConfigForJson), CreateOptions());
 
 		fileJson.ShouldContain("\"___Type\": \"File\"");
 		fileJson.ShouldContain("\"FilePath\": \"test.txt\"");
@@ -233,8 +241,8 @@ public class JsonSerializationE2ETest {
 		var fileJson = """{"___Type": "File", "FilePath": "json.txt"}""";
 		var httpJson = """{"___Type": "Http", "Url": "https://json.com"}""";
 
-		var fileDto = JsonSerializer.Deserialize(fileJson, TestJsonSerializerContext.Default.IPluginConfigForJson);
-		var httpDto = JsonSerializer.Deserialize(httpJson, TestJsonSerializerContext.Default.IPluginConfigForJson);
+		var fileDto = (IPluginConfigForJson)JsonSerializer.Deserialize(fileJson, typeof(IPluginConfigForJson), CreateOptions())!;
+		var httpDto = (IPluginConfigForJson)JsonSerializer.Deserialize(httpJson, typeof(IPluginConfigForJson), CreateOptions())!;
 
 		var fileModel = IPluginConfigForJson.CreateModel(fileDto, sp);
 		var httpModel = IPluginConfigForJson.CreateModel(httpDto, sp);
@@ -255,9 +263,9 @@ public class JsonSerializationE2ETest {
 		};
 
 		var dto = ParentModelForJson.CreateJson(model);
-		var json = JsonSerializer.Serialize(dto, TestJsonSerializerContext.Default.ParentModelForJson);
+		var json = JsonSerializer.Serialize(dto, typeof(ParentModelForJson), CreateOptions());
 
-		var deserializedDto = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var deserializedDto = (ParentModelForJson)JsonSerializer.Deserialize(json, typeof(ParentModelForJson), CreateOptions())!;
 		var restoredModel = ParentModelForJson.CreateModel(deserializedDto, sp);
 
 		restoredModel.ShouldNotBeNull();
@@ -275,12 +283,12 @@ public class JsonSerializationE2ETest {
 		model.PluginRp.Value = new HttpPluginConfig { Url = "https://rp-roundtrip.com" };
 
 		var dto = ParentModelForJson.CreateJson(model);
-		var json = JsonSerializer.Serialize(dto, TestJsonSerializerContext.Default.ParentModelForJson);
+		var json = JsonSerializer.Serialize(dto, typeof(ParentModelForJson), CreateOptions());
 
 		json.ShouldContain("\"___Type\": \"Http\"");
 		json.ShouldContain("\"Url\": \"https://rp-roundtrip.com\"");
 
-		var deserializedDto = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var deserializedDto = (ParentModelForJson)JsonSerializer.Deserialize(json, typeof(ParentModelForJson), CreateOptions())!;
 		var restoredModel = ParentModelForJson.CreateModel(deserializedDto, sp);
 
 		restoredModel.ShouldNotBeNull();
@@ -296,14 +304,14 @@ public class JsonSerializationE2ETest {
 		model.PluginList.Add(new HttpPluginConfig { Url = "https://list2.com" });
 
 		var dto = ParentModelForJson.CreateJson(model);
-		var json = JsonSerializer.Serialize(dto, TestJsonSerializerContext.Default.ParentModelForJson);
+		var json = JsonSerializer.Serialize(dto, typeof(ParentModelForJson), CreateOptions());
 
 		json.ShouldContain("\"___Type\": \"File\"");
 		json.ShouldContain("\"FilePath\": \"list1.txt\"");
 		json.ShouldContain("\"___Type\": \"Http\"");
 		json.ShouldContain("\"Url\": \"https://list2.com\"");
 
-		var deserializedDto = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var deserializedDto = (ParentModelForJson)JsonSerializer.Deserialize(json, typeof(ParentModelForJson), CreateOptions())!;
 		var restoredModel = ParentModelForJson.CreateModel(deserializedDto, sp);
 
 		restoredModel.ShouldNotBeNull();
@@ -320,7 +328,7 @@ public class JsonSerializationE2ETest {
 		model.PluginRp.Value = new FilePluginConfig { FilePath = "rp-plugin.txt" };
 
 		var dto = ParentModelForJson.CreateJson(model);
-		var json = JsonSerializer.Serialize(dto, TestJsonSerializerContext.Default.ParentModelForJson);
+		var json = JsonSerializer.Serialize(dto, typeof(ParentModelForJson), CreateOptions());
 
 		json.ShouldContain("\"PluginRp\"");
 		json.ShouldContain("\"___Type\": \"File\"");
@@ -334,7 +342,7 @@ public class JsonSerializationE2ETest {
 		model.PluginList.Add(new HttpPluginConfig { Url = "https://h1.com" });
 
 		var dto = ParentModelForJson.CreateJson(model);
-		var json = JsonSerializer.Serialize(dto, TestJsonSerializerContext.Default.ParentModelForJson);
+		var json = JsonSerializer.Serialize(dto, typeof(ParentModelForJson), CreateOptions());
 
 		json.ShouldContain("\"PluginList\"");
 		json.ShouldContain("\"___Type\": \"File\"");
@@ -346,13 +354,15 @@ public class JsonSerializationE2ETest {
 	[Fact]
 	public void Deserialize_ReactivePropertyOfPolymorphicInterface_CreatesCorrectConcreteType() {
 		var sp = CreateServiceProvider();
+		var tempModel = new ParentModel();
+		_ = JsonSerializer.Serialize(ParentModelForJson.CreateJson(tempModel), typeof(ParentModelForJson), CreateOptions());
 		var json = """
 		{
 			"PluginRp": { "___Type": "Http", "Url": "https://deser-rp.com" }
 		}
 		""";
 
-		var forJson = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var forJson = (ParentModelForJson)JsonSerializer.Deserialize(json, typeof(ParentModelForJson), CreateOptions())!;
 		forJson.ShouldNotBeNull();
 		var model = ParentModelForJson.CreateModel(forJson, sp);
 
@@ -364,6 +374,8 @@ public class JsonSerializationE2ETest {
 	[Fact]
 	public void Deserialize_ObservableListOfPolymorphicInterface_CreatesCorrectConcreteTypes() {
 		var sp = CreateServiceProvider();
+		var tempModel = new ParentModel();
+		_ = JsonSerializer.Serialize(ParentModelForJson.CreateJson(tempModel), typeof(ParentModelForJson), CreateOptions());
 		var json = """
 		{
 			"PluginList": [
@@ -373,7 +385,7 @@ public class JsonSerializationE2ETest {
 		}
 		""";
 
-		var forJson = JsonSerializer.Deserialize(json, TestJsonSerializerContext.Default.ParentModelForJson);
+		var forJson = (ParentModelForJson)JsonSerializer.Deserialize(json, typeof(ParentModelForJson), CreateOptions())!;
 		forJson.ShouldNotBeNull();
 		var model = ParentModelForJson.CreateModel(forJson, sp);
 

@@ -3,7 +3,8 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 
 using R3.JsonConfig.Demo;
-using R3.JsonConfig.Demo.Composition.Store;
+using R3.JsonConfig.Demo.Entity1;
+using R3.JsonConfig.Demo.Entity2;
 
 public class Program {
 	public static void Main(string[] args) {

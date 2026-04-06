@@ -258,8 +258,10 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 
 	/// <summary>
 	/// 抽出されたシンボルと派生型エントリに対してソース生成処理を振り分ける。
+	/// インターフェースや抽象クラスの基底型が参照先アセンブリにある場合（プロジェクト分割パターン）にも対応し、
+	/// 派生型が存在するプロジェクトでポリモーフィックな ForJson クラスを生成する。
 	/// </summary>
-	private void Execute(SourceProductionContext context, Compilation _, ImmutableArray<INamedTypeSymbol?> symbols, ImmutableArray<DerivedTypeEntry?> entries) {
+	private void Execute(SourceProductionContext context, Compilation compilation, ImmutableArray<INamedTypeSymbol?> symbols, ImmutableArray<DerivedTypeEntry?> entries) {
 		// 派生型エントリを基底型 FQN でグループ化
 		var derivedMap = new Dictionary<string, List<(string TypeName, string StringKey)>>();
 		foreach (var entry in entries) {
@@ -273,12 +275,52 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 			list.Add((entry.DerivedTypeName, entry.TypeDiscriminator));
 		}
 
+		// 現在のコンパイルで処理済みの基底型 FQN を追跡
+		var handledBaseTypes = new HashSet<string>();
+
 		foreach (var symbol in symbols) {
 			if (symbol is null) {
 				continue;
 			}
+
+			var modelFullName = symbol.ToDisplayString(FullyQualifiedFormat);
+
+			// インターフェースまたは抽象クラスで、現在のコンパイル内に派生型が存在しない場合はスキップ。
+			// 派生型が別プロジェクトにある場合、そのプロジェクトのジェネレーターがポリモーフィック DTO を生成する。
+			if ((symbol.TypeKind == Microsoft.CodeAnalysis.TypeKind.Interface || symbol.IsAbstract)
+				&& !derivedMap.ContainsKey(modelFullName)) {
+				continue;
+			}
+
+			handledBaseTypes.Add(modelFullName);
+
 			try {
 				this.GenerateForSymbol(context, symbol, derivedMap);
+			} catch (Exception ex) {
+				context.ReportDiagnostic(Diagnostic.Create(new("RJG001", "JsonDtoGenerator Error", "{0}", "JsonDtoGenerator", DiagnosticSeverity.Warning, true), Location.None, ex.Message));
+			}
+		}
+
+		// 参照先アセンブリの基底型に対するポリモーフィック ForJson を生成。
+		// 現在のコンパイルに [JsonConfigDerivedType] が付与された派生型があり、
+		// その基底型が参照先アセンブリにある（= symbols に含まれない）場合に該当する。
+		foreach (var kvp in derivedMap) {
+			if (handledBaseTypes.Contains(kvp.Key)) {
+				continue;
+			}
+
+			// global:: プレフィックスを除去してメタデータ名に変換
+			var metadataName = kvp.Key;
+			if (metadataName.StartsWith("global::")) {
+				metadataName = metadataName.Substring("global::".Length);
+			}
+			var baseSymbol = compilation.GetTypeByMetadataName(metadataName);
+			if (baseSymbol is null) {
+				continue;
+			}
+
+			try {
+				this.GenerateForSymbol(context, baseSymbol, derivedMap);
 			} catch (Exception ex) {
 				context.ReportDiagnostic(Diagnostic.Create(new("RJG001", "JsonDtoGenerator Error", "{0}", "JsonDtoGenerator", DiagnosticSeverity.Warning, true), Location.None, ex.Message));
 			}

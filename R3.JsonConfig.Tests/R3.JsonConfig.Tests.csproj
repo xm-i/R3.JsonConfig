@@ -30,6 +30,7 @@
     <ProjectReference Include="..\R3.JsonConfig.Generators\R3.JsonConfig.Generators.csproj" />
     <ProjectReference Include="..\R3.JsonConfig\R3.JsonConfig.csproj" />
     <ProjectReference Include="..\R3.JsonConfig.Demo.Composition\R3.JsonConfig.Demo.Composition.csproj" />
+    <ProjectReference Include="..\R3.JsonConfig.Demo.Entity\R3.JsonConfig.Demo.Entity.csproj" />
   </ItemGroup>
 
 </Project>

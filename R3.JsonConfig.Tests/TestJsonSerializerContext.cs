@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 
 using R3.JsonConfig.Demo.Composition.Store;
+using R3.JsonConfig.Demo.Entity;
 
 namespace R3.JsonConfig.Tests;
 

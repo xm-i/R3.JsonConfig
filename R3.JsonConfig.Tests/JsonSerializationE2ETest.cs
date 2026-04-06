@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 
 using R3.JsonConfig.Demo.Composition.Store;
+using R3.JsonConfig.Demo.Entity;
 
 using Shouldly;
 

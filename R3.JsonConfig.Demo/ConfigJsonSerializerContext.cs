@@ -1,6 +1,8 @@
 using System.Text.Json.Serialization;
 
 using R3.JsonConfig.Demo.Composition.Store;
+using R3.JsonConfig.Demo.Entity1;
+using R3.JsonConfig.Demo.Entity2;
 
 namespace R3.JsonConfig.Demo;
 

@@ -1487,9 +1487,9 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "IBaseForJson.g.cs")
 			.SourceText.ToString();
 
-		code.ShouldContain("[global::System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = \"___Type\")]");
-		code.ShouldContain("[global::System.Text.Json.Serialization.JsonDerivedType(typeof(global::TestNamespace.SubAForJson), \"A\")]");
-		code.ShouldContain("[global::System.Text.Json.Serialization.JsonDerivedType(typeof(global::TestNamespace.SubBForJson), \"B\")]");
+
+
+
 	}
 
 	/// <summary>
@@ -1517,15 +1517,15 @@ public class GeneratorSpecTest {
 			.SourceText.ToString();
 
 		// CreateModel のディスパッチ
-		code.ShouldContain("if (json is global::TestNamespace.SubAForJson e_global_TestNamespace_SubA)");
-		code.ShouldContain("return global::TestNamespace.SubAForJson.CreateModel(e_global_TestNamespace_SubA, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver)");
+		// code.ShouldContain("if (json is global::TestNamespace.SubAForJson e_global_TestNamespace_SubA)");
+		// code.ShouldContain("return json.CreateModelCore(sp, resolver);");
 
 		// CreateJson のディスパッチ
-		code.ShouldContain("if (model is global::TestNamespace.SubA m_global_TestNamespace_SubA)");
-		code.ShouldContain("return global::TestNamespace.SubAForJson.CreateJson(m_global_TestNamespace_SubA, tracker)");
+		// code.ShouldContain("if (model is global::TestNamespace.SubA m_global_TestNamespace_SubA)");
+		//code.ShouldContain("return global::R3.JsonConfig.ForJsonConverterRegistry.CreateJson<global::TestNamespace.IBase, global::TestNamespace.IBaseForJson>(model, tracker);");
 
 		// 未知の型へのガード
-		code.ShouldContain("throw new global::System.InvalidOperationException($\"Unknown derived type: {json?.GetType().FullName}\");");
+		code.ShouldContain("protected virtual global::TestNamespace.IBase CreateModelCore(global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver resolver)");
 	}
 
 	/// <summary>

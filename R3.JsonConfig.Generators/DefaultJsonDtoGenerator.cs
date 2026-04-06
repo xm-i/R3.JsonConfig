@@ -260,25 +260,12 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 	/// 抽出されたシンボルと派生型エントリに対してソース生成処理を振り分ける。
 	/// </summary>
 	private void Execute(SourceProductionContext context, Compilation _, ImmutableArray<INamedTypeSymbol?> symbols, ImmutableArray<DerivedTypeEntry?> entries) {
-		// 派生型エントリを基底型 FQN でグループ化
-		var derivedMap = new Dictionary<string, List<(string TypeName, string StringKey)>>();
-		foreach (var entry in entries) {
-			if (entry is null) {
-				continue;
-			}
-			if (!derivedMap.TryGetValue(entry.BaseTypeFullName, out var list)) {
-				list = new List<(string TypeName, string StringKey)>();
-				derivedMap[entry.BaseTypeFullName] = list;
-			}
-			list.Add((entry.DerivedTypeName, entry.TypeDiscriminator));
-		}
-
 		foreach (var symbol in symbols) {
 			if (symbol is null) {
 				continue;
 			}
 			try {
-				this.GenerateForSymbol(context, symbol, derivedMap);
+				this.GenerateForSymbol(context, symbol, entries);
 			} catch (Exception ex) {
 				context.ReportDiagnostic(Diagnostic.Create(new("RJG001", "JsonDtoGenerator Error", "{0}", "JsonDtoGenerator", DiagnosticSeverity.Warning, true), Location.None, ex.Message));
 			}
@@ -300,54 +287,56 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 	/// <summary>
 	/// 特定のシンボルに対してソースを生成。
 	/// </summary>
-	private void GenerateForSymbol(SourceProductionContext context, INamedTypeSymbol modelSymbol, Dictionary<string, List<(string TypeName, string StringKey)>> derivedMap) {
+	private void GenerateForSymbol(SourceProductionContext context, INamedTypeSymbol modelSymbol, ImmutableArray<DerivedTypeEntry?> entries) {
 		var modelName = modelSymbol.Name;
 		var dtoName = modelName + "ForJson";
 
-		// ポリモーフィック対応の解析: 事前収集された派生型マップから派生型リストを取得
 		var modelFullName = modelSymbol.ToDisplayString(FullyQualifiedFormat);
 		var dtoFullName = modelFullName + "ForJson";
-		derivedMap.TryGetValue(modelFullName, out var derivedTypes);
 
-		// ケース1: ポリモーフィックな基底クラス/インターフェースの場合
-		if (derivedTypes is { Count: > 0 }) {
-			var polymorphicCode = this.BuildPolymorphicDto(modelSymbol, modelFullName, dtoFullName, derivedTypes);
-			context.AddSource($"{dtoName}.g.cs", SourceText.From(polymorphicCode, Encoding.UTF8));
+		if (modelSymbol.IsAbstract || modelSymbol.TypeKind == Microsoft.CodeAnalysis.TypeKind.Interface) {
+			var baseCode = this.BuildBaseDto(modelSymbol, modelFullName, dtoFullName);
+			context.AddSource($"{dtoName}.g.cs", SourceText.From(baseCode, Encoding.UTF8));
 			return;
 		}
 
-		// ケース2: 具体的な実装クラス（または派生型を持たない基底クラス）の場合
-		var inheritance = this.GetInheritance(modelSymbol);
+		var inheritanceInfo = this.GetInheritanceInfo(modelSymbol);
+		var inheritanceStr = inheritanceInfo.BaseDtoFullName != null ? $" : {inheritanceInfo.BaseDtoFullName}" : "";
+		var isPolymorphicChild = inheritanceInfo.BaseModelFullName != null;
+
 		var props = this.GetProperties(modelSymbol);
 
-		var concreteCode = this.BuildConcreteDto(modelSymbol, modelFullName, dtoFullName, inheritance, props);
+		DerivedTypeEntry? matchingEntry = null;
+		foreach (var entry in entries) {
+			if (entry != null && entry.DerivedTypeName == modelFullName) {
+				matchingEntry = entry;
+				break;
+			}
+		}
+
+		var concreteCode = this.BuildConcreteDto(modelSymbol, modelFullName, dtoFullName, inheritanceStr, isPolymorphicChild, matchingEntry, inheritanceInfo.BaseModelFullName, inheritanceInfo.BaseDtoFullName, props);
 		context.AddSource($"{dtoName}.g.cs", SourceText.From(concreteCode, Encoding.UTF8));
 	}
 
 	/// <summary>
 	/// 継承関係を解析し、基底クラスやインターフェースの DTO が存在するか確認する。
 	/// </summary>
-	private string GetInheritance(INamedTypeSymbol modelSymbol) {
-		var inheritance = "";
+	private (string? BaseModelFullName, string? BaseDtoFullName) GetInheritanceInfo(INamedTypeSymbol modelSymbol) {
 		if (modelSymbol.TypeKind == Microsoft.CodeAnalysis.TypeKind.Class) {
 			var baseType = modelSymbol.BaseType;
 			while (baseType != null && baseType.SpecialType != SpecialType.System_Object) {
 				if (this.HasGenerateJsonDtoAttribute(baseType)) {
-					inheritance = $" : {baseType.ToDisplayString(FullyQualifiedFormat)}ForJson";
-					break;
+					return (baseType.ToDisplayString(FullyQualifiedFormat), $"{baseType.ToDisplayString(FullyQualifiedFormat)}ForJson");
 				}
 				baseType = baseType.BaseType;
 			}
-			if (string.IsNullOrEmpty(inheritance)) {
-				foreach (var iface in modelSymbol.AllInterfaces) {
-					if (this.HasGenerateJsonDtoAttribute(iface)) {
-						inheritance = $" : {iface.ToDisplayString(FullyQualifiedFormat)}ForJson";
-						break;
-					}
+			foreach (var iface in modelSymbol.AllInterfaces) {
+				if (this.HasGenerateJsonDtoAttribute(iface)) {
+					return (iface.ToDisplayString(FullyQualifiedFormat), $"{iface.ToDisplayString(FullyQualifiedFormat)}ForJson");
 				}
 			}
 		}
-		return inheritance;
+		return (null, null);
 	}
 
 	/// <summary>
@@ -428,195 +417,175 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 	/// <summary>
 	/// ポリモーフィックなインターフェースまたは基底クラスのための DTO ソースを構築する。
 	/// </summary>
-	private string BuildPolymorphicDto(INamedTypeSymbol modelSymbol, string modelFullName, string dtoFullName, List<(string TypeName, string StringKey)> derivedTypes) {
+	private string BuildBaseDto(INamedTypeSymbol modelSymbol, string modelFullName, string dtoFullName) {
 		var ns = modelSymbol.ContainingNamespace.IsGlobalNamespace ? "" : modelSymbol.ContainingNamespace.ToDisplayString();
 		var namespaceLine = string.IsNullOrWhiteSpace(ns) ? string.Empty : $"namespace {ns};";
 
-		var createModelBodyBuilderP = new StringBuilder();
-		var createJsonLinesBuilderP = new StringBuilder();
-
-		foreach (var dt in derivedTypes) {
-			var derivedDto = dt.TypeName + "ForJson";
-			var varNameM = "e_" + dt.TypeName.Replace("::", "_").Replace(".", "_");
-			createModelBodyBuilderP.AppendLine($$"""
-		if (json is {{derivedDto}} {{varNameM}}) {
-			return {{derivedDto}}.CreateModel({{varNameM}}, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver);
-		}
-""");
-
-			var varNameJ = "m_" + dt.TypeName.Replace("::", "_").Replace(".", "_");
-			createJsonLinesBuilderP.AppendLine($$"""
-		if (model is {{dt.TypeName}} {{varNameJ}}) {
-			return {{derivedDto}}.CreateJson({{varNameJ}}, tracker);
-		}
-""");
-		}
-		createModelBodyBuilderP.AppendLine("\t\tthrow new global::System.InvalidOperationException($\"Unknown derived type: {json?.GetType().FullName}\");");
-		createJsonLinesBuilderP.AppendLine("\t\tthrow new global::System.InvalidOperationException($\"Unknown derived type: {model?.GetType().FullName}\");");
-
-		var attrsBuilder = new StringBuilder();
-		attrsBuilder.AppendLine("\t[global::System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = \"___Type\")]");
-		foreach (var dt in derivedTypes) {
-			attrsBuilder.AppendLine($"\t[global::System.Text.Json.Serialization.JsonDerivedType(typeof({dt.TypeName}ForJson), \"{dt.StringKey}\")]");
-		}
-
-		return $$"""
-// <auto-generated />
-#nullable enable
-
-{{namespaceLine}}
-{{attrsBuilder.ToString().TrimEnd()}}
-public partial class {{modelSymbol.Name}}ForJson {
-	public string? ___Id { get; set; }
-
-	public string? ___Ref { get; set; }
-
-	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(json))]
-	public static {{modelFullName}}? CreateModel({{dtoFullName}}? json, global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver? resolver = null) {
-		if (json is null) return null;
-		if (json.___Ref is { } @ref) return resolver?.Resolve<{{modelFullName}}>(@ref) ?? throw new global::System.InvalidOperationException($"Reference not found: {@ref}");
-		resolver ??= new global::R3.JsonConfig.ReferenceResolver();
-{{createModelBodyBuilderP.ToString().TrimEnd()}}
+		var b = new StringBuilder();
+		b.AppendLine("// <auto-generated />");
+		b.AppendLine("#nullable enable");
+		b.AppendLine();
+		if (!string.IsNullOrEmpty(namespaceLine)) b.AppendLine(namespaceLine);
+		b.AppendLine($"public partial class {modelSymbol.Name}ForJson {{");
+		b.AppendLine("	public string? ___Id { get; set; }");
+		b.AppendLine();
+		b.AppendLine("	public string? ___Ref { get; set; }");
+		b.AppendLine();
+		b.AppendLine($"	protected virtual {modelFullName} CreateModelCore(global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver resolver) {{");
+		b.AppendLine("		throw new global::System.InvalidOperationException(\"No implementation mapped for \" + GetType().FullName);");
+		b.AppendLine("	}");
+		b.AppendLine();
+		b.AppendLine("	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(json))]");
+		b.AppendLine($"	public static {modelFullName}? CreateModel({dtoFullName}? json, global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver? resolver = null) {{");
+		b.AppendLine("		if (json is null) return null;");
+		b.AppendLine($"		if (json.___Ref is {{ }} @ref) return resolver?.Resolve<{modelFullName}>(@ref) ?? throw new global::System.InvalidOperationException(\"Reference not found: \" + @ref);");
+		b.AppendLine("		resolver ??= new global::R3.JsonConfig.ReferenceResolver();");
+		b.AppendLine("		return json.CreateModelCore(sp, resolver);");
+		b.AppendLine("	}");
+		b.AppendLine();
+		b.AppendLine("	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(model))]");
+		b.AppendLine($"	public static {dtoFullName}? CreateJson({modelFullName}? model, global::R3.JsonConfig.ReferenceTracker? tracker = null) {{");
+		b.AppendLine("		if(model is null) return null;");
+		b.AppendLine("		tracker ??= new global::R3.JsonConfig.ReferenceTracker();");
+		b.AppendLine($"		return global::R3.JsonConfig.ForJsonConverterRegistry.CreateJson<{modelFullName}, {dtoFullName}>(model, tracker)!;");
+		b.AppendLine("	}");
+		b.AppendLine("}");
+		return b.ToString();
 	}
 
-	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(model))]
-	public static {{dtoFullName}}? CreateJson({{modelFullName}}? model, global::R3.JsonConfig.ReferenceTracker? tracker = null) {
-		if(model is null) return null;
-		tracker ??= new global::R3.JsonConfig.ReferenceTracker();
-{{createJsonLinesBuilderP.ToString().TrimEnd()}}
-	}
-}
-""";
-	}
+
 
 	/// <summary>
 	/// 具体的な実装クラスのための DTO ソースを構築する。
 	/// </summary>
-	private string BuildConcreteDto(INamedTypeSymbol modelSymbol, string modelFullName, string dtoFullName, string inheritance, List<DtoPropertyInfo> props) {
+			private string BuildConcreteDto(INamedTypeSymbol modelSymbol, string modelFullName, string dtoFullName, string inheritance, bool isPolymorphicChild, DerivedTypeEntry? entry, string? baseModelFullName, string? baseDtoFullName, List<DtoPropertyInfo> props) {
 		var ns = modelSymbol.ContainingNamespace.IsGlobalNamespace ? "" : modelSymbol.ContainingNamespace.ToDisplayString();
 		var namespaceLine = string.IsNullOrWhiteSpace(ns) ? string.Empty : $"namespace {ns};";
 
-		var propLinesBuilder = new StringBuilder();
-		foreach (var p in props) {
-			propLinesBuilder.AppendLine($$"""
-					public {{p.JsonType}} {{p.Name}} {
-						get;
-						set;
-					}
+		var b = new StringBuilder();
+		b.AppendLine("// <auto-generated />");
+		b.AppendLine("#nullable enable");
+		b.AppendLine();
+		if (!string.IsNullOrEmpty(namespaceLine)) b.AppendLine(namespaceLine);
+		b.AppendLine($"public partial class {modelSymbol.Name}ForJson{inheritance} {{");
 
-				""");
+		if (inheritance == "") {
+			b.AppendLine("	public string? ___Id { get; set; }");
+			b.AppendLine();
+			b.AppendLine("	public string? ___Ref { get; set; }");
+			b.AppendLine();
 		}
-		var propLines = propLinesBuilder.ToString();
+
+		foreach (var p in props) {
+			b.AppendLine($"	public {(p.JsonType.EndsWith("?") ? p.JsonType : p.JsonType + "?")} {p.Name} {{ get; set; }}");
+		}
+		b.AppendLine();
 
 		var createModelBodyBuilder = new StringBuilder();
+		string accessor = isPolymorphicChild ? "this" : "json";
+
 		foreach (var p in props) {
 			var varName = "notNull" + p.Name;
 			var modelValue = p.TypeKind switch {
 				TypeKind.ForJson => $"{p.JsonItemType}.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver)",
 				TypeKind.Plain => "e",
-				_ => throw new("Unknown type kind: " + p.TypeKind)
+				_ => throw new global::System.InvalidOperationException("Unknown type kind: " + p.TypeKind)
 			};
 
-			var setPropertyLogic = p.PropertyKind switch {
-				PropertyKind.ReactiveProperty => $$"""
-						if (json.{{p.Name}} is { } {{varName}}){
-							var e = {{varName}};
-							model.{{p.Name}}.Value = {{modelValue}};
-						}
-					""",
-				PropertyKind.ObservableList => $$"""
-						if (json.{{p.Name}} is { } {{varName}}) {
-							model.{{p.Name}}.Clear();
-							foreach (var e in {{varName}}) {
-								model.{{p.Name}}.Add({{modelValue}});
-							}
-						}
-					""",
-				PropertyKind.Plain => $$"""
-						if (json.{{p.Name}} is { } {{varName}}){
-							var e = {{varName}};
-							model.{{p.Name}} = {{modelValue}};
-						}
-					""",
-				_ => throw new("Unknown property kind: " + p.TypeKind)
-			};
-
-			createModelBodyBuilder.AppendLine(setPropertyLogic);
+			if (p.PropertyKind == PropertyKind.ReactiveProperty) {
+				createModelBodyBuilder.AppendLine($"			if ({accessor}.{p.Name} is {{ }} {varName}){{");
+				createModelBodyBuilder.AppendLine($"				var e = {varName};");
+				createModelBodyBuilder.AppendLine($"				model.{p.Name}.Value = {modelValue};");
+				createModelBodyBuilder.AppendLine("			}");
+			} else if (p.PropertyKind == PropertyKind.ObservableList) {
+				createModelBodyBuilder.AppendLine($"			if ({accessor}.{p.Name} is {{ }} {varName}) {{");
+				createModelBodyBuilder.AppendLine($"				model.{p.Name}.Clear();");
+				createModelBodyBuilder.AppendLine($"				foreach (var e in {varName}) {{");
+				createModelBodyBuilder.AppendLine($"					model.{p.Name}.Add({modelValue});");
+				createModelBodyBuilder.AppendLine("				}");
+				createModelBodyBuilder.AppendLine("			}");
+			} else {
+				createModelBodyBuilder.AppendLine($"			if ({accessor}.{p.Name} is {{ }} {varName}) {{");
+				createModelBodyBuilder.AppendLine($"				var e = {varName};");
+				createModelBodyBuilder.AppendLine($"				model.{p.Name} = {modelValue};");
+				createModelBodyBuilder.AppendLine("			}");
+			}
 		}
 		var createModelBody = createModelBodyBuilder.ToString();
 
+		if (isPolymorphicChild) {
+			b.AppendLine($"	protected override {baseModelFullName} CreateModelCore(global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver resolver) {{");
+			b.AppendLine($"		var model = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<{modelFullName}>(sp);");
+			b.AppendLine("		if (this.___Id is { } id) resolver.Add(id, model);");
+			b.AppendLine(createModelBody);
+			b.AppendLine("		return model;");
+			b.AppendLine("	}");
+		} else {
+			b.AppendLine("	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(json))]");
+			b.AppendLine($"	public static {modelFullName}? CreateModel({dtoFullName}? json, global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver? resolver = null) {{");
+			b.AppendLine("		if(json is null){ return null; }");
+			b.AppendLine($"		if (json.___Ref is {{ }} @ref) return resolver?.Resolve<{modelFullName}>(@ref) ?? throw new global::System.InvalidOperationException(\"Reference not found: \" + @ref);");
+			b.AppendLine("		resolver ??= new global::R3.JsonConfig.ReferenceResolver();");
+			b.AppendLine($"		var model = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<{modelFullName}>(sp);");
+			b.AppendLine("		if (json.___Id is { } id) resolver.Add(id, model);");
+			b.AppendLine(createModelBody);
+			b.AppendLine("		return model;");
+			b.AppendLine("	}");
+		}
+		b.AppendLine();
+
 		var createJsonLinesBuilder = new StringBuilder();
 		foreach (var p in props) {
-			var setJsonPropertyLogic = p.PropertyKind switch {
-				PropertyKind.Plain => p.TypeKind switch {
-					TypeKind.Plain => $"model.{p.Name}",
-					TypeKind.ForJson => $"{p.JsonItemType}.CreateJson(model.{p.Name}, tracker)",
-					_ => throw new("Unknown type kind:" + p.TypeKind)
-				},
-				PropertyKind.ReactiveProperty => p.TypeKind switch {
-					TypeKind.Plain => $"model.{p.Name}.Value",
-					TypeKind.ForJson => $"{p.JsonItemType}.CreateJson(model.{p.Name}.Value, tracker)",
-					_ => throw new($"Unknown type kind:{p.TypeKind}")
-				},
-				PropertyKind.ObservableList => p.TypeKind switch {
-					TypeKind.Plain => $"global::System.Linq.Enumerable.ToArray(model.{p.Name})",
-					TypeKind.ForJson => $"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(model.{p.Name}, x => {p.JsonItemType}.CreateJson(x, tracker)))",
-					_ => throw new("Unknown type kind:" + p.TypeKind)
-				},
-				_ => throw new("Unknown property property")
-			};
-
-			createJsonLinesBuilder.AppendLine($"\t\t\t{p.Name} = {setJsonPropertyLogic},");
+			string setJsonPropertyLogic;
+			if (p.PropertyKind == PropertyKind.Plain) {
+				if (p.TypeKind == TypeKind.Plain) setJsonPropertyLogic = $"model.{p.Name}";
+				else if (p.TypeKind == TypeKind.ForJson) setJsonPropertyLogic = $"{p.JsonItemType}.CreateJson(model.{p.Name}, tracker)";
+				else throw new global::System.InvalidOperationException("Unknown type kind:" + p.TypeKind);
+			} else if (p.PropertyKind == PropertyKind.ReactiveProperty) {
+				if (p.TypeKind == TypeKind.Plain) setJsonPropertyLogic = $"model.{p.Name}.Value";
+				else if (p.TypeKind == TypeKind.ForJson) setJsonPropertyLogic = $"{p.JsonItemType}.CreateJson(model.{p.Name}.Value, tracker)";
+				else throw new global::System.InvalidOperationException("Unknown type kind:" + p.TypeKind);
+			} else if (p.PropertyKind == PropertyKind.ObservableList) {
+				if (p.TypeKind == TypeKind.Plain) setJsonPropertyLogic = $"global::System.Linq.Enumerable.ToArray(model.{p.Name})";
+				else if (p.TypeKind == TypeKind.ForJson) setJsonPropertyLogic = $"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(model.{p.Name}, x => {p.JsonItemType}.CreateJson(x, tracker)))";
+				else throw new global::System.InvalidOperationException("Unknown type kind:" + p.TypeKind);
+			} else {
+				throw new global::System.InvalidOperationException("Unknown property property");
+			}
+			createJsonLinesBuilder.AppendLine($"			{p.Name} = {setJsonPropertyLogic},");
 		}
 		var createJsonLines = createJsonLinesBuilder.ToString();
 
-		var metadataProps = string.IsNullOrEmpty(inheritance)
-			? $$"""
-				public string? ___Id { get; set; }
+		b.AppendLine("	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(model))]");
+		b.AppendLine($"	public static {dtoFullName}? CreateJson({modelFullName}? model, global::R3.JsonConfig.ReferenceTracker? tracker = null) {{");
+		b.AppendLine("		if (model is null) return null;");
+		b.AppendLine("		tracker ??= new global::R3.JsonConfig.ReferenceTracker();");
+		b.AppendLine("		var trackId = tracker.GetOrAddId(model);");
+		b.AppendLine("		if (trackId != null) {");
+		b.AppendLine($"			return new {dtoFullName} {{ ___Ref = trackId }};");
+		b.AppendLine("		}");
+		b.AppendLine($"		return new {dtoFullName} {{");
+		b.AppendLine("			___Id = tracker.GetId(model),");
+		b.AppendLine(createJsonLines);
+		b.AppendLine("		};");
+		b.AppendLine("	}");
 
-				public string? ___Ref { get; set; }
-			"""
-			: "";
-
-		return $$"""
-// <auto-generated />
-#nullable enable
-
-{{namespaceLine}}
-public partial class {{modelSymbol.Name}}ForJson{{inheritance}} {
-{{metadataProps}}
-
-{{propLines}}
-	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(json))]
-	public static {{modelFullName}}? CreateModel({{dtoFullName}}? json, global::System.IServiceProvider sp, global::R3.JsonConfig.ReferenceResolver? resolver = null) {
-		if(json is null){
-			return null;
-		}
-		if (json.___Ref is { } @ref) return resolver?.Resolve<{{modelFullName}}>(@ref) ?? throw new global::System.InvalidOperationException($"Reference not found: {@ref}");
-		resolver ??= new global::R3.JsonConfig.ReferenceResolver();
-
-		var model = global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<{{modelFullName}}>(sp);
-		if (json.___Id is { } id) resolver.Add(id, model);
-{{createModelBody}}
-		return model;
-	}
-
-	[return: global::System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(model))]
-	public static {{dtoFullName}}? CreateJson({{modelFullName}}? model, global::R3.JsonConfig.ReferenceTracker? tracker = null) {
-		if (model is null){
-			return null;
-		}
-		tracker ??= new global::R3.JsonConfig.ReferenceTracker();
-		if (tracker.GetOrAddId(model) is { } id) {
-			return new {{dtoFullName}} { ___Ref = id };
+		if (entry != null) {
+			b.AppendLine();
+			b.AppendLine($"	internal static class {modelSymbol.Name}ForJsonRegistration {{");
+			b.AppendLine("		[global::System.Runtime.CompilerServices.ModuleInitializer]");
+			b.AppendLine("		internal static void Register() {");
+			b.AppendLine($"			global::R3.JsonConfig.ForJsonConverterRegistry.Register<{baseModelFullName}, {baseDtoFullName}>(");
+			b.AppendLine($"				typeof({modelFullName}),");
+			b.AppendLine($"				static (model, tracker) => {dtoFullName}.CreateJson(({modelFullName})model, tracker)!,");
+			b.AppendLine($"				\"{entry.TypeDiscriminator}\",");
+			b.AppendLine($"				typeof({dtoFullName})");
+			b.AppendLine("			);");
+			b.AppendLine("		}");
+			b.AppendLine("	}");
 		}
 
-		return new() {
-			___Id = tracker.GetId(model),
-{{createJsonLines}}
-		};
-	}
-}
-""";
+		b.AppendLine("}");
+		return b.ToString();
 	}
 }

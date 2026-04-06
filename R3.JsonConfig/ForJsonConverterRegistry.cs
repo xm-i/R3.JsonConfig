@@ -11,14 +11,20 @@ namespace R3.JsonConfig;
 /// </summary>
 public static class ForJsonConverterRegistry {
 	private sealed class Entry {
-		public Func<object, ReferenceTracker, object> CreateJsonFunc { get; }
-		public string Discriminator { get; }
-		public Type DtoType { get; }
+		public Func<object, ReferenceTracker, object> CreateJsonFunc {
+			get;
+		}
+		public string Discriminator {
+			get;
+		}
+		public Type DtoType {
+			get;
+		}
 
 		public Entry(Func<object, ReferenceTracker, object> createJsonFunc, string discriminator, Type dtoType) {
-			CreateJsonFunc = createJsonFunc;
-			Discriminator = discriminator;
-			DtoType = dtoType;
+			this.CreateJsonFunc = createJsonFunc;
+			this.Discriminator = discriminator;
+			this.DtoType = dtoType;
 		}
 	}
 
@@ -66,7 +72,7 @@ public static class ForJsonConverterRegistry {
 
 				foreach (var entry in kvp.Value.Values) {
 					// 既に登録されているか確認
-					bool exists = false;
+					var exists = false;
 					if (polyOptions.DerivedTypes != null) {
 						foreach (var derived in polyOptions.DerivedTypes) {
 							if (derived.DerivedType == entry.DtoType) {

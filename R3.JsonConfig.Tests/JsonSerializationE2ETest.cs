@@ -31,16 +31,17 @@ public class JsonSerializationE2ETest {
 	}
 
 	[Fact]
-	public void Serialize_DefaultModel_ContainsExpectedDefaults() {
+	public void Serialize_DefaultModel_ContainsEmptyValues() {
 		var model = new ParentModel();
 
 		var forJson = ParentModelForJson.CreateJson(model);
 		var json = JsonSerializer.Serialize(forJson, typeof(ParentModelForJson), CreateOptions());
 
 		json.ShouldNotBeNullOrWhiteSpace();
-		json.ShouldContain("\"StringRp\": \"DefaultString\"");
-		json.ShouldContain("\"StringProperty\": \"DefaultStringProperty\"");
-		json.ShouldContain("\"IntArray\"");
+		// 初期値が削除されたため、null として書き出される
+		json.ShouldContain("\"StringRp\": null");
+		json.ShouldContain("\"StringProperty\": null");
+		json.ShouldContain("\"IntArray\": []");
 	}
 
 	[Fact]
@@ -112,7 +113,7 @@ public class JsonSerializationE2ETest {
 	}
 
 	[Fact]
-	public void Deserialize_PartialJson_OnlyOverridesSpecifiedFields() {
+	public void Deserialize_PartialJson_OtherFieldsAreNull() {
 		var json = """
 		{
 			"StringRp": "PartialOverride"
@@ -126,10 +127,9 @@ public class JsonSerializationE2ETest {
 
 		model.ShouldNotBeNull();
 		model.StringRp.Value.ShouldBe("PartialOverride");
-		model.StringProperty.ShouldBe("DefaultStringProperty");
-		model.IntArray.Count.ShouldBe(4);
-		model.IntArray[0].ShouldBe(0);
-		model.IntArray[3].ShouldBe(3);
+		// 初期値がないため null になる
+		model.StringProperty.ShouldBeNull();
+		model.IntArray.Count.ShouldBe(0);
 	}
 
 	[Fact]
@@ -178,7 +178,7 @@ public class JsonSerializationE2ETest {
 	}
 
 	[Fact]
-	public void Deserialize_EmptyJson_ProducesModelWithDefaults() {
+	public void Deserialize_EmptyJson_ProducesEmptyModel() {
 		var json = "{}";
 		var sp = CreateServiceProvider();
 
@@ -187,10 +187,10 @@ public class JsonSerializationE2ETest {
 		var model = ParentModelForJson.CreateModel(forJson, sp);
 
 		model.ShouldNotBeNull();
-		model.StringRp.Value.ShouldBe("DefaultString");
-		model.StringProperty.ShouldBe("DefaultStringProperty");
-		model.IntArray.Count.ShouldBe(4);
-		model.ColorArray.Count.ShouldBe(2);
+		model.StringRp.Value.ShouldBeNull();
+		model.StringProperty.ShouldBeNull();
+		model.IntArray.Count.ShouldBe(0);
+		model.ColorArray.Count.ShouldBe(0);
 	}
 
 	[Fact]

@@ -10,59 +10,98 @@ namespace R3.JsonConfig.Demo.Entity1;
 [GenerateR3JsonConfigDto]
 public class ParentModel {
 
+	/// <summary>
+	/// 文字列型の ReactiveProperty。
+	/// </summary>
 	public ReactiveProperty<string> StringRp {
 		get;
-	} = new("DefaultString");
+	} = new();
 
+	/// <summary>
+	/// Nullable な Color 型の ReactiveProperty。
+	/// </summary>
 	public ReactiveProperty<Color?> ColorRp {
 		get;
-	} = new(Color.Red);
+	} = new();
 
+	/// <summary>
+	/// ChildModel 型の ReactiveProperty。
+	/// </summary>
 	public ReactiveProperty<ChildModel> ChildRp {
 		get;
 	} = new();
 
+	/// <summary>
+	/// int 型の配列を管理する ObservableList。
+	/// </summary>
 	public ObservableList<int> IntArray {
 		get;
-	} = [0, 1, 2, 3];
+	} = [];
+
+	/// <summary>
+	/// Nullable な Color 型の配列を管理する ObservableList。
+	/// </summary>
 	public ObservableList<Color?> ColorArray {
 		get;
-	} = [Color.Red, Color.Green];
+	} = [];
 
-
+	/// <summary>
+	/// ChildModel 型の配列を管理する ObservableList。
+	/// </summary>
 	public ObservableList<ChildModel> ChildArray {
 		get;
 	} = [];
 
-	public string StringProperty {
+	/// <summary>
+	/// 通常の文字列プロパティ。
+	/// </summary>
+	public string? StringProperty {
 		get;
 		set;
-	} = "DefaultStringProperty";
+	}
 
+	/// <summary>
+	/// 通常の Nullable な Color プロパティ。
+	/// </summary>
 	public Color? ColorProperty {
 		get;
 		set;
-	} = Color.Blue;
+	}
 
+	/// <summary>
+	/// 通常の ChildModel プロパティ。
+	/// </summary>
 	public ChildModel? ChildProperty {
 		get;
 		set;
 	}
 
+	/// <summary>
+	/// ポリモーフィックなプラグイン設定（インターフェース）。
+	/// </summary>
 	public IPluginConfig? Plugin {
 		get;
 		set;
-	} = new FilePluginConfig();
+	}
 
+	/// <summary>
+	/// 2つ目のポリモーフィックなプラグイン設定。
+	/// </summary>
 	public IPluginConfig? Plugin2 {
 		get;
 		set;
 	}
 
+	/// <summary>
+	/// IPluginConfig 側の ReactiveProperty。
+	/// </summary>
 	public ReactiveProperty<IPluginConfig> PluginRp {
 		get;
-	} = new(new FilePluginConfig());
+	} = new();
 
+	/// <summary>
+	/// IPluginConfig を格納する ObservableList。
+	/// </summary>
 	public ObservableList<IPluginConfig> PluginList {
 		get;
 	} = [];

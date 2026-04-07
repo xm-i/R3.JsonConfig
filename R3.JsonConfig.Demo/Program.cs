@@ -1,3 +1,4 @@
+using System.Drawing;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
@@ -30,8 +31,40 @@ public class Program {
 			var model = ParentModelForJson.CreateModel(jsonModel, serviceProvider);
 		} else {
 			var pm = serviceProvider.GetRequiredService<ParentModel>();
+
+			// ReactiveProperties
+			pm.StringRp.Value = "Full Demo String";
+			pm.ColorRp.Value = Color.Magenta;
+			pm.ChildRp.Value = new ChildModel { Name = "Primary Child" };
+			pm.PluginRp.Value = new FilePluginConfig { FilePath = "plugin_rp.txt" };
+
+			// ObservableLists
+			pm.IntArray.Add(10);
+			pm.IntArray.Add(20);
+			pm.IntArray.Add(30);
+
+			pm.ColorArray.Add(Color.Cyan);
+			pm.ColorArray.Add(Color.Yellow);
+
+			pm.ChildArray.Add(new ChildModel { Name = "Array Child 1" });
+			pm.ChildArray.Add(new ChildModel { Name = "Array Child 2" });
+
+			pm.PluginList.Add(new HttpPluginConfig { Url = "https://list.example.com" });
+			pm.PluginList.Add(new FilePluginConfig { FilePath = "list_item.cfg" });
+
+			// Plain Properties
+			pm.StringProperty = "Regular Property Value";
+			pm.ColorProperty = Color.Orange;
+			pm.ChildProperty = new ChildModel { Name = "Direct Child Property" };
+
+			// Polymorphic Properties
+			pm.Plugin = new HttpPluginConfig { Url = "https://direct.example.com" };
+			pm.Plugin2 = new FilePluginConfig { FilePath = "direct_plugin_2.txt" };
+
+			// シリアライズ実行
 			var json = JsonSerializer.Serialize(ParentModelForJson.CreateJson(pm), options);
 			File.WriteAllText("config.json", json);
+			Console.WriteLine("config.json has been created with all properties initialized.");
 		}
 	}
 }

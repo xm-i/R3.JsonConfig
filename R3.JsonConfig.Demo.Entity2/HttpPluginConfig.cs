@@ -3,8 +3,16 @@ using R3.JsonConfig.Demo.Composition.Store;
 
 namespace R3.JsonConfig.Demo.Entity2;
 
+/// <summary>
+/// HTTP ベースのプラグイン設定。
+/// </summary>
 [GenerateR3JsonConfigDto]
 [JsonConfigDerivedType("Http")]
 public class HttpPluginConfig : IPluginConfig {
-	public string Url { get; set; } = "https://example.com";
+	/// <summary>
+	/// 接続先の URL。
+	/// </summary>
+	public string? Url {
+		get; set;
+	}
 }

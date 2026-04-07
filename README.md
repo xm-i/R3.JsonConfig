@@ -60,19 +60,31 @@ public class MySettings {
 }
 ```
 
-### 3. 保存と読み込み
-自動生成された `MySettingsForJson` クラスを使用して変換を行います。
+### 3. コンテキストの定義 (Native AOT 対応)
+`JsonSerializerContext` を定義して、生成された DTO をシリアライズ対象に含めます。
+
+```csharp
+using System.Text.Json.Serialization;
+
+[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSerializable(typeof(MySettingsForJson))]
+public partial class MyJsonContext : JsonSerializerContext { }
+```
+
+### 4. 保存と読み込み
+自動生成された `MySettingsForJson` と、定義した `MyJsonContext` を使用して変換を行います。
 
 ```csharp
 // 1. モデルから DTO へ変換して保存
 var model = new MySettings();
 var dto = MySettingsForJson.CreateJson(model);
-string json = JsonSerializer.Serialize(dto);
+// ※ポリモーフィズムを使用する場合は JsonSerializerOptions の設定が必要（後述）
+string json = JsonSerializer.Serialize(dto, MyJsonContext.Default.MySettingsForJson);
 File.WriteAllText("settings.json", json);
 
 // 2. JSON から DTO を経由してモデルを復元
 string loadedJson = File.ReadAllText("settings.json");
-var loadedDto = JsonSerializer.Deserialize<MySettingsForJson>(loadedJson);
+var loadedDto = JsonSerializer.Deserialize(loadedJson, MyJsonContext.Default.MySettingsForJson);
 
 // CreateModel は IServiceProvider を通じてモデルを生成します
 MySettings restoredModel = MySettingsForJson.CreateModel(loadedDto, serviceProvider)!;
@@ -189,14 +201,12 @@ public partial class MyJsonContext : JsonSerializerContext { }
 var options = new JsonSerializerOptions(MyJsonContext.Default.Options) {
     TypeInfoResolver = MyJsonContext.Default.WithAddedModifier(ForJsonConverterRegistry.ApplyPolymorphism)
 };
-// 2. オプションを適用したコンテキストを生成
-var context = new MyJsonContext(options);
 
-// 3. シリアライズの実行（型情報を明示的に渡す）
-string json = JsonSerializer.Serialize(dto, context.MySettingsForJson);
+// 2. シリアライズの実行 (options を渡すことでモディファイアが適用される)
+string json = JsonSerializer.Serialize(dto, options);
 
-// 4. デシリアライズの実行
-var loadedDto = JsonSerializer.Deserialize(json, context.MySettingsForJson);
+// 3. デシリアライズの実行
+var loadedDto = JsonSerializer.Deserialize<MySettingsForJson>(json, options);
 ```
 
 ---

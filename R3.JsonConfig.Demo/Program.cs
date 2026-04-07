@@ -18,20 +18,19 @@ public class Program {
 
 		var serviceProvider = serviceCollection.BuildServiceProvider();
 
-		var pm = serviceProvider.GetRequiredService<ParentModel>();
-
 		// SourceGenerator で生成済みの既定設定を引き継ぎつつ、
 		// 実行時レジストリのポリモーフィズム解決をモディファイアとして合成する。
 		var options = new JsonSerializerOptions(ConfigJsonSerializerContext.Default.Options) {
 			TypeInfoResolver = ConfigJsonSerializerContext.Default.WithAddedModifier(global::R3.JsonConfig.ForJsonConverterRegistry.ApplyPolymorphism)
 		};
-		var context = new ConfigJsonSerializerContext(options);
 
 		if (File.Exists("config.json")) {
 			var json = File.ReadAllText("config.json");
-			var model = JsonSerializer.Deserialize(json, context.ParentModelForJson);
+			var jsonModel = JsonSerializer.Deserialize<ParentModelForJson>(json, options);
+			var model = ParentModelForJson.CreateModel(jsonModel, serviceProvider);
 		} else {
-			var json = JsonSerializer.Serialize(ParentModelForJson.CreateJson(pm), context.ParentModelForJson);
+			var pm = serviceProvider.GetRequiredService<ParentModel>();
+			var json = JsonSerializer.Serialize(ParentModelForJson.CreateJson(pm), options);
 			File.WriteAllText("config.json", json);
 		}
 	}

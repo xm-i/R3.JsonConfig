@@ -1020,7 +1020,7 @@ public class GeneratorSpecTest {
 			.First(s => s.HintName == "ParentForJson.g.cs")
 			.SourceText.ToString();
 
-		parentCode.Contains("global::TestNamespace.ChildForJson.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver)").ShouldBeTrue(
+		parentCode.Contains("global::TestNamespace.ChildForJson.CreateModel(e, sp, resolver)").ShouldBeTrue(
 			"ネストされた ForJson 型の CreateModel 内で子の CreateModel が再帰呼び出しされるべき");
 	}
 
@@ -1074,6 +1074,7 @@ public class GeneratorSpecTest {
 
 			[GenerateR3JsonConfigDto]
 			public class Parent {
+				[JsonConfigCreateScope]
 				public Child ChildProp { get; set; }
 			}
 			""";
@@ -1558,7 +1559,7 @@ public class GeneratorSpecTest {
 		code.ShouldContain("global::TestNamespace.IBaseForJson? BaseProp");
 
 		// 変換ロジック
-		code.ShouldContain("global::TestNamespace.IBaseForJson.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver);");
+		code.ShouldContain("global::TestNamespace.IBaseForJson.CreateModel(e, sp, resolver);");
 		code.ShouldContain("BaseProp = global::TestNamespace.IBaseForJson.CreateJson(model.BaseProp, tracker)");
 	}
 
@@ -1602,7 +1603,7 @@ public class GeneratorSpecTest {
 			"ReactiveProperty<IBase> は IBaseForJson? にマッピングされるべき");
 
 		// CreateModel のロジック
-		code.Contains("model.BaseRp.Value = global::TestNamespace.IBaseForJson.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver);").ShouldBeTrue(
+		code.Contains("model.BaseRp.Value = global::TestNamespace.IBaseForJson.CreateModel(e, sp, resolver);").ShouldBeTrue(
 			"CreateModel 内でインターフェースの ForJson 型の CreateModel が呼ばれるべき");
 
 		// CreateJson のロジック
@@ -1656,12 +1657,50 @@ public class GeneratorSpecTest {
 		// CreateModel のロジック
 		code.Contains("model.BaseList.Clear()").ShouldBeTrue(
 			"ObservableList の CreateModel では Clear() が呼ばれるべき");
-		code.Contains("model.BaseList.Add(global::TestNamespace.IBaseForJson.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver))").ShouldBeTrue(
+		code.Contains("model.BaseList.Add(global::TestNamespace.IBaseForJson.CreateModel(e, sp, resolver))").ShouldBeTrue(
 			"ObservableList の CreateModel では Add() 内でインターフェースの CreateModel が呼ばれるべき");
 
 		// CreateJson のロジック
 		code.Contains("global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(model.BaseList, x => global::TestNamespace.IBaseForJson.CreateJson(x, tracker)))").ShouldBeTrue(
 			"ObservableList の CreateJson では Select + CreateJson + ToArray が使われるべき");
+	}
+
+	/// <summary>
+	/// プロパティ単位で [JsonConfigCreateScope] を指定した場合、
+	/// クラスレベルの設定に関わらずそのプロパティの生成時に新しいスコープが作成されることを検証する。
+	/// </summary>
+	[Fact]
+	public async Task CreateModel_CreatesNewDiScope_ForPropertyWithCreateScopeAttribute() {
+		var source = """
+			using R3.JsonConfig.Attributes;
+
+			namespace TestNamespace;
+
+			[GenerateR3JsonConfigDto]
+			public class Child {
+				public string Name { get; set; } = "";
+			}
+
+			[GenerateR3JsonConfigDto]
+			public class Parent {
+				[JsonConfigCreateScope]
+				public Child ChildWithScope { get; set; }
+
+				public Child ChildWithoutScope { get; set; }
+			}
+			""";
+
+		var (runResult, _) = await TestHelper.RunGenerator(source);
+		var parentCode = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "ParentForJson.g.cs")
+			.SourceText.ToString();
+
+		parentCode.Contains("global::TestNamespace.ChildForJson.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver)").ShouldBeTrue(
+			"属性付きプロパティでは新しい DI スコープが作成されるべき");
+
+		parentCode.Contains("global::TestNamespace.ChildForJson.CreateModel(e, sp, resolver)").ShouldBeTrue(
+			"属性なしプロパティでは sp がそのまま渡されるべき");
 	}
 
 	/// <summary>

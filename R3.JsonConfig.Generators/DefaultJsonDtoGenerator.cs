@@ -39,6 +39,11 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 		get;
 	} = "R3.JsonConfig.Attributes.JsonConfigDerivedTypeAttribute";
 
+	/// <summary>プロパティごとにスコープ生成を制御するための属性名。</summary>
+	protected virtual string CreateScopePropertyAttributeName {
+		get;
+	} = "R3.JsonConfig.Attributes.JsonConfigCreateScopeAttribute";
+
 	/// <summary>
 	/// プロパティの種類（通常のプロパティ、ReactiveProperty、ObservableList）。
 	/// </summary>
@@ -84,14 +89,19 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 		public string NonNullableItemTypeFullName {
 			get;
 		}
+		/// <summary>このプロパティの生成時に新しいスコープを作成するかどうか。</summary>
+		public bool CreateScope {
+			get;
+		}
 
-		public DtoPropertyInfo(string name, string jsonType, PropertyKind propertyKind, TypeKind typeKind, string jsonItemType, string nonNullableItemTypeFullName) {
+		public DtoPropertyInfo(string name, string jsonType, PropertyKind propertyKind, TypeKind typeKind, string jsonItemType, string nonNullableItemTypeFullName, bool createScope) {
 			this.Name = name;
 			this.JsonType = jsonType;
 			this.PropertyKind = propertyKind;
 			this.TypeKind = typeKind;
 			this.JsonItemType = jsonItemType;
 			this.NonNullableItemTypeFullName = nonNullableItemTypeFullName;
+			this.CreateScope = createScope;
 		}
 	}
 
@@ -395,6 +405,9 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 				continue;
 			}
 
+			// Check for property-level CreateScope attribute
+			var createScope = member.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == this.CreateScopePropertyAttributeName);
+
 			var typeSymbol = member.Type;
 
 			// コレクション・ラップ型の特殊処理
@@ -402,12 +415,12 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 				case INamedTypeSymbol { TypeArguments.Length: 1, MetadataName: "ObservableList`1" } nts when nts.ContainingNamespace.ToDisplayString() == "ObservableCollections": {
 						var resolved = this.ResolveType(nts.TypeArguments[0]);
 						// 要素の型が既に Nullable かどうかに関わらず、配列自体は Nullable にする
-						props.Add(new(member.Name, $"{resolved.JsonItemType}[]?", PropertyKind.ObservableList, resolved.TypeKind, resolved.JsonItemType, resolved.NonNullableItemTypeFullName));
+						props.Add(new(member.Name, $"{resolved.JsonItemType}[]?", PropertyKind.ObservableList, resolved.TypeKind, resolved.JsonItemType, resolved.NonNullableItemTypeFullName, createScope));
 						continue;
 					}
 				case INamedTypeSymbol { TypeArguments.Length: 1, MetadataName: "ReactiveProperty`1" } reactive: {
 						var resolved = this.ResolveType(reactive.TypeArguments[0]);
-						props.Add(new(member.Name, this.MakeNullable(resolved.JsonItemType), PropertyKind.ReactiveProperty, resolved.TypeKind, resolved.JsonItemType, resolved.NonNullableItemTypeFullName));
+						props.Add(new(member.Name, this.MakeNullable(resolved.JsonItemType), PropertyKind.ReactiveProperty, resolved.TypeKind, resolved.JsonItemType, resolved.NonNullableItemTypeFullName, createScope));
 						continue;
 					}
 			}
@@ -419,7 +432,7 @@ public class DefaultJsonDtoGenerator : IIncrementalGenerator {
 			}
 			{
 				var resolved = this.ResolveType(typeSymbol);
-				props.Add(new(member.Name, this.MakeNullable(resolved.JsonItemType), PropertyKind.Plain, resolved.TypeKind, resolved.JsonItemType, resolved.NonNullableItemTypeFullName));
+				props.Add(new(member.Name, this.MakeNullable(resolved.JsonItemType), PropertyKind.Plain, resolved.TypeKind, resolved.JsonItemType, resolved.NonNullableItemTypeFullName, createScope));
 			}
 		}
 		return props;
@@ -487,7 +500,9 @@ public partial class {{modelSymbol.Name}}ForJson {
 		foreach (var p in props) {
 			var varName = "notNull" + p.Name;
 			var modelValue = p.TypeKind switch {
-				TypeKind.ForJson => $"{p.JsonItemType}.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver)",
+				TypeKind.ForJson => p.CreateScope
+					? $"{p.JsonItemType}.CreateModel(e, global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(sp).ServiceProvider, resolver)"
+					: $"{p.JsonItemType}.CreateModel(e, sp, resolver)",
 				TypeKind.Plain => "e",
 				_ => throw new("Unknown type kind: " + p.TypeKind)
 			};

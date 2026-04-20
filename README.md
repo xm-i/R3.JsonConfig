@@ -183,6 +183,24 @@ var options = new JsonSerializerOptions() {
 
 これを行わない場合、`___Type` 識別子が JSON に出力されず、デシリアライズ時に実際の型を解決できなくなります。
 
+### DI コンテナのスコープ制御
+生成される `CreateModel` メソッド内で子モデル（ネストされた `ForJson` 型）を処理する際、デフォルトでは引数として渡された `IServiceProvider` がそのまま引き継がれます。
+これに対し、**`[JsonConfigCreateScope]`** 属性をプロパティに付与することで、そのプロパティのモデル生成時に毎回新しい DI スコープ (`IServiceScope`) を作成し、それを渡すように制御することが可能です。
+
+```csharp
+[GenerateR3JsonConfigDto]
+public class ParentModel {
+    // このプロパティの生成時のみ新しく DI スコープを生成する
+    [JsonConfigCreateScope]
+    public ChildModel ChildA { get; set; }
+
+    // こちらは sp がそのまま引き継がれる (デフォルト)
+    public ChildModel ChildB { get; set; }
+}
+```
+
+パフォーマンス上のオーバーヘッドを避けるため、デフォルトではスコープは作成されません。スコープ付きサービス (`Scoped`) を個別に生成・注入する必要があるプロパティに対してのみこの属性を適用してください。
+
 ### カスタム JsonConverter の利用
 `Color` 型のように、ジェネレータ側で DTO 化をサポートしていない型を扱う場合は、System.Text.Json 標準の `JsonConverter` を利用します。
 

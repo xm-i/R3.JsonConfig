@@ -1748,4 +1748,232 @@ public class GeneratorSpecTest {
 	}
 
 	#endregion
+
+	#region 11. カスタムラッパー登録 (RegisterJsonConfigWrapper)
+
+	/// <summary>
+	/// [assembly: RegisterJsonConfigWrapper] で登録したカスタムラッパー型が
+	/// DTO のプロパティ型として T? にマッピングされることを検証する。
+	/// </summary>
+	[Fact]
+	public async Task CustomWrapper_IsMappedToInnerType_WhenRegisteredViaAssemblyAttribute() {
+		var source = """
+			using R3.JsonConfig;
+			using R3.JsonConfig.Attributes;
+
+			[assembly: RegisterJsonConfigWrapper(typeof(TestNamespace.MyBox<>), typeof(TestNamespace.MyBoxAdapter<>))]
+
+			namespace TestNamespace;
+
+			public class MyBox<T> {
+				public T Content { get; set; } = default!;
+			}
+
+			public class MyBoxAdapter<T> : IJsonConfigWrapper<MyBox<T>, T> {
+				public T Get(MyBox<T> wrapper) => wrapper.Content;
+				public void Set(MyBox<T> wrapper, T value) => wrapper.Content = value;
+			}
+
+			[GenerateR3JsonConfigDto]
+			public class Model {
+				public MyBox<string> Title { get; } = new();
+				public MyBox<int>    Count  { get; } = new();
+			}
+			""";
+
+		var (runResult, diagnostics) = await TestHelper.RunGenerator(source);
+
+		diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty(
+			"カスタムラッパー登録でコンパイルエラーが発生してはいけない");
+
+		var code = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "ModelForJson.g.cs")
+			.SourceText.ToString();
+
+		code.Contains("string? Title").ShouldBeTrue(
+			"MyBox<string> は string? にマッピングされるべき");
+		code.Contains("int? Count").ShouldBeTrue(
+			"MyBox<int> は int? にマッピングされるべき");
+	}
+
+	/// <summary>
+	/// [assembly: RegisterJsonConfigWrapper] で登録したカスタムラッパーの getter 式が
+	/// アダプター経由のコード（new Adapter().Get(prop)）として生成されることを検証する。
+	/// </summary>
+	[Fact]
+	public async Task CustomWrapper_GeneratesAdapterGetterCode_InCreateJson() {
+		var source = """
+			using R3.JsonConfig;
+			using R3.JsonConfig.Attributes;
+
+			[assembly: RegisterJsonConfigWrapper(typeof(TestNamespace.MyBox<>), typeof(TestNamespace.MyBoxAdapter<>))]
+
+			namespace TestNamespace;
+
+			public class MyBox<T> {
+				public T Content { get; set; } = default!;
+			}
+
+			public class MyBoxAdapter<T> : IJsonConfigWrapper<MyBox<T>, T> {
+				public T Get(MyBox<T> wrapper) => wrapper.Content;
+				public void Set(MyBox<T> wrapper, T value) => wrapper.Content = value;
+			}
+
+			[GenerateR3JsonConfigDto]
+			public class Model {
+				public MyBox<string> Name { get; } = new();
+			}
+			""";
+
+		var (runResult, diagnostics) = await TestHelper.RunGenerator(source);
+
+		diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty();
+
+		var code = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "ModelForJson.g.cs")
+			.SourceText.ToString();
+
+		// CreateJson 内でアダプターの Get を使ったコードが生成されるべき
+		code.Contains("new global::TestNamespace.MyBoxAdapter<string>().Get(model.Name)").ShouldBeTrue(
+			"CreateJson 内でアダプター経由の getter コードが生成されるべき");
+	}
+
+	/// <summary>
+	/// [assembly: RegisterJsonConfigWrapper] で登録したカスタムラッパーの setter 式が
+	/// アダプター経由のコード（new Adapter().Set(prop, value)）として生成されることを検証する。
+	/// </summary>
+	[Fact]
+	public async Task CustomWrapper_GeneratesAdapterSetterCode_InCreateModel() {
+		var source = """
+			using R3.JsonConfig;
+			using R3.JsonConfig.Attributes;
+
+			[assembly: RegisterJsonConfigWrapper(typeof(TestNamespace.MyBox<>), typeof(TestNamespace.MyBoxAdapter<>))]
+
+			namespace TestNamespace;
+
+			public class MyBox<T> {
+				public T Content { get; set; } = default!;
+			}
+
+			public class MyBoxAdapter<T> : IJsonConfigWrapper<MyBox<T>, T> {
+				public T Get(MyBox<T> wrapper) => wrapper.Content;
+				public void Set(MyBox<T> wrapper, T value) => wrapper.Content = value;
+			}
+
+			[GenerateR3JsonConfigDto]
+			public class Model {
+				public MyBox<string> Name { get; } = new();
+			}
+			""";
+
+		var (runResult, diagnostics) = await TestHelper.RunGenerator(source);
+
+		diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty();
+
+		var code = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "ModelForJson.g.cs")
+			.SourceText.ToString();
+
+		// CreateModel 内でアダプターの Set を使ったコードが生成されるべき
+		code.Contains("new global::TestNamespace.MyBoxAdapter<string>().Set(model.Name, e);").ShouldBeTrue(
+			"CreateModel 内でアダプター経由の setter コードが生成されるべき");
+	}
+
+	/// <summary>
+	/// [assembly: RegisterJsonConfigWrapper] で登録したカスタムラッパーに
+	/// [GenerateR3JsonConfigDto] 付きのネスト型を型引数として持つ場合、
+	/// DTO 側の型が TInnerForJson? になることを検証する。
+	/// </summary>
+	[Fact]
+	public async Task CustomWrapper_OfNestedDtoType_IsMappedToForJsonType() {
+		var source = """
+			using R3.JsonConfig;
+			using R3.JsonConfig.Attributes;
+
+			[assembly: RegisterJsonConfigWrapper(typeof(TestNamespace.MyBox<>), typeof(TestNamespace.MyBoxAdapter<>))]
+
+			namespace TestNamespace;
+
+			public class MyBox<T> {
+				public T Content { get; set; } = default!;
+			}
+
+			public class MyBoxAdapter<T> : IJsonConfigWrapper<MyBox<T>, T> {
+				public T Get(MyBox<T> wrapper) => wrapper.Content;
+				public void Set(MyBox<T> wrapper, T value) => wrapper.Content = value;
+			}
+
+			[GenerateR3JsonConfigDto]
+			public class Child {
+				public string Tag { get; set; } = "";
+			}
+
+			[GenerateR3JsonConfigDto]
+			public class Parent {
+				public MyBox<Child> Item { get; } = new();
+			}
+			""";
+
+		var (runResult, diagnostics) = await TestHelper.RunGenerator(source);
+
+		diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty();
+
+		var parentCode = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "ParentForJson.g.cs")
+			.SourceText.ToString();
+
+		// Child は [GenerateR3JsonConfigDto] 付きなので MyBox<Child> は ChildForJson? にマッピングされるべき
+		parentCode.Contains("global::TestNamespace.ChildForJson? Item").ShouldBeTrue(
+			"MyBox<Child>（Child は DTO 対象）は ChildForJson? にマッピングされるべき");
+	}
+
+	/// <summary>
+	/// [assembly: RegisterJsonConfigWrapper] で登録されていないカスタムラッパー型は
+	/// 通常の plain プロパティ（public setter が必要）として扱われることを検証する。
+	/// </summary>
+	[Fact]
+	public async Task UnregisteredWrapper_IsTreatedAsPlainProperty() {
+		var source = """
+			using R3.JsonConfig.Attributes;
+
+			namespace TestNamespace;
+
+			// 未登録のラッパー型（RegisterJsonConfigWrapper なし）
+			public class UnregisteredBox<T> {
+				public T Content { get; set; } = default!;
+			}
+
+			[GenerateR3JsonConfigDto]
+			public class Model {
+				// setter なし → 未登録ラッパーは plain 扱いでスキップされるべき
+				public UnregisteredBox<string> NoSetterProp { get; } = new();
+
+				// public setter あり → 通常プロパティとして DTO に含まれるべき
+				public UnregisteredBox<string> WithSetterProp { get; set; } = new();
+			}
+			""";
+
+		var (runResult, diagnostics) = await TestHelper.RunGenerator(source);
+
+		diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty();
+
+		var code = runResult.Results
+			.SelectMany(r => r.GeneratedSources)
+			.First(s => s.HintName == "ModelForJson.g.cs")
+			.SourceText.ToString();
+
+		code.Contains("NoSetterProp").ShouldBeFalse(
+			"未登録ラッパーかつ setter なしのプロパティは DTO に含まれてはいけない");
+
+		code.Contains("WithSetterProp").ShouldBeTrue(
+			"未登録ラッパーでも public setter があれば通常プロパティとして DTO に含まれるべき");
+	}
+
+	#endregion
+
 }

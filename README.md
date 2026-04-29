@@ -1,6 +1,7 @@
 # R3.JsonConfig
 
-R3 (ReactiveProperty) や ObservableCollections を利用したドメインモデルの JSON シリアライズ用 DTO を自動生成する Source Generator です。
+ドメインモデルの JSON シリアライズ用 DTO を自動生成する Source Generator です。
+`ReactiveProperty<T>` や `ObservableList<T>` をはじめ、`[assembly: RegisterJsonConfigWrapper]` 属性により**任意のラッパー型**をプラグインとして登録できます。
 
 ---
 
@@ -8,7 +9,7 @@ R3 (ReactiveProperty) や ObservableCollections を利用したドメインモ�
 
 通常のシリアライザ（System.Text.Json 等）でドメインモデルを保存・復元しようとすると、以下のような課題に直面します：
 
-- **ReactiveProperty のシリアライズ**: `ReactiveProperty<T>` はラッパー型であるため、そのままでは `.Value` ではなくオブジェクトの内部構造がシリアライズされてしまいます。
+- **ラッパー型のシリアライズ**: `ReactiveProperty<T>` などのラッパー型はそのままでは内部値ではなくオブジェクトの内部構造がシリアライズされてしまいます。
 - **循環参照のハンドリング**: 親子関係や相互参照を持つモデルをシリアライズすると、無限再帰が発生して実行時にクラッシュします。
 - **DI（依存性注入）との連携**: コンストラクタインジェクションを利用しているモデルをデシリアライズで復元する際、標準のシリアライザだけではインスタンス化が困難です。
 
@@ -19,7 +20,7 @@ R3 (ReactiveProperty) や ObservableCollections を利用したドメインモ�
 ## 主な機能
 
 - **Source Generator による生成**: 実行時のリフレクションを最小化。Native AOT (`JsonSourceGenerationContext`) にも対応した高速な動作。
-- **型マッピング**: `ReactiveProperty<T>` → `T?`、`ObservableList<T>` → `T[]?` のように、JSON で扱いやすい型へ自動的にマッピング。
+- **型マッピング**: `ReactiveProperty<T>` → `T?`、`ObservableList<T>` → `T[]?` のように JSON で扱いやすい型へ自動的にマッピング。`[assembly: RegisterJsonConfigWrapper]` による任意のラッパー型の登録にも対応。
 - **循環参照のサポート**: 内部的な `___Id` と `___Ref` トークンを用いて、オブジェクトの参照関係を保持したまま保存・復元が可能。
 - **DI コンテナ連携**: 生成される `CreateModel` メソッドが `IServiceProvider` を受け取り、DI 経由でモデルを生成・注入。
 - **ポリモーフィズム対応**: インターフェースや基底クラスをプロパティに持つ場合も、属性指定により派生型の識別と保存が可能。
@@ -101,8 +102,9 @@ MySettings restoredModel = MySettingsForJson.CreateModel(loadedDto, serviceProvi
 
 | プロパティの種類 | 収集条件 | 特記事項 |
 | :--- | :--- | :--- |
-| **ReactiveProperty<T>** | 常に収集 | getter のみ（Setter なし）でも対応可能 |
-| **ObservableList<T>** | 常に収集 | getter のみ（Setter なし）でも対応可能 |
+| **ReactiveProperty<T>**（組み込み） | 常に収集 | getter のみ（Setter なし）でも対応可能 |
+| **ObservableList<T>**（組み込み） | 常に収集 | getter のみ（Setter なし）でも対応可能 |
+| **カスタムラッパー型**（`[RegisterJsonConfigWrapper]` で登録） | 常に収集 | getter のみでも対応可能。アダプター経由でアクセスコードを生成 |
 | **通常のプロパティ** | **public setter** が必須 | デシリアライズ時に値を代入するため |
 
 - **対象外となるプロパティ**:
@@ -117,10 +119,11 @@ MySettings restoredModel = MySettingsForJson.CreateModel(loadedDto, serviceProvi
 
 | モデル側の型 | DTO 側の型 | 分類 |
 | :--- | :--- | :--- |
-| `ReactiveProperty<T>` | `T?` | **通常型**: そのままの型 |
+| `ReactiveProperty<T>` | `T?` | **ラッパー型**: `.Value` で getter/setter を生成 |
 | `ReactiveProperty<TModel>` | `TModelForJson?` | **再帰型**: DTO 変換が連鎖 |
-| `ObservableList<T>` | `T[]?` | **配列型**: 要素が通常型ならそのまま配列化 |
-| `ObservableList<TModel>` | `TModelForJson[]?` | **配列×再帰型**: 各要素を DTO 変換して配列化 |
+| `ObservableList<T>` | `T[]?` | **コレクション型**: 要素が通常型ならそのまま配列化 |
+| `ObservableList<TModel>` | `TModelForJson[]?` | **コレクション×再帰型**: 各要素を DTO 変換して配列化 |
+| `MyWrapper<T>`（カスタム登録） | `T?` | **カスタムラッパー型**: アダプター経由で getter/setter を生成 |
 | `T`（通常プロパティ） | `T?` | **そのままのマッピング** |
 
 #### 再帰変換の流れ
@@ -200,6 +203,41 @@ public class ParentModel {
 ```
 
 パフォーマンス上のオーバーヘッドを避けるため、デフォルトではスコープは作成されません。スコープ付きサービス (`Scoped`) を個別に生成・注入する必要があるプロパティに対してのみこの属性を適用してください。
+
+### カスタムラッパー型の登録
+
+`ReactiveProperty<T>` 以外の任意のラッパー型（例: `Rx.NET の BehaviorSubject<T>` や自作のラッパークラス）も、
+`[assembly: RegisterJsonConfigWrapper]` 属性で登録することでジェネレータに認識させることができます。
+
+#### 1. アダプターの実装
+`IJsonConfigWrapper<TWrapper, TInner>` を実装したオープンジェネリックのアダプタークラスを作成します。
+
+```csharp
+using R3.JsonConfig;
+
+// 自作のラッパー型: MyBox<T> は .Content プロパティで内部値を保持するとする
+public class MyBoxAdapter<T> : IJsonConfigWrapper<MyBox<T>, T> {
+    public T Get(MyBox<T> wrapper) => wrapper.Content;
+    public void Set(MyBox<T> wrapper, T value) => wrapper.Content = value;
+}
+```
+
+#### 2. アセンブリ属性で登録
+プロジェクト内の任意の `.cs` ファイルに `assembly:` 属性を記述します。
+
+```csharp
+using R3.JsonConfig.Attributes;
+using MyApp; // MyBox<T> のある名前空間
+
+[assembly: RegisterJsonConfigWrapper(typeof(MyBox<>), typeof(MyBoxAdapter<>))]
+```
+
+これだけで、以後 `MyBox<T>` を使用するすべてのモデルプロパティが自動的に `T?` にマッピングされ、
+`MyBoxAdapter<T>` 経由でアクセスコードが生成されます。
+
+> [!NOTE]
+> `[assembly: RegisterJsonConfigWrapper]` は参照アセンブリ側に記述しても認識されます。
+> ライブラリとしてアダプターと登録をパッケージングし、利用側プロジェクトで参照するだけで有効になります。
 
 ### カスタム JsonConverter の利用
 `Color` 型のように、ジェネレータ側で DTO 化をサポートしていない型を扱う場合は、System.Text.Json 標準の `JsonConverter` を利用します。

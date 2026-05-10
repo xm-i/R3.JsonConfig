@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/SolutionItems/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="README.md" />
+  </Folder>
+  <Project Path="GenJsonConfig.Demo.Composition/GenJsonConfig.Demo.Composition.csproj" Id="446c49b7-56df-47dd-a497-95dbab62022c" />
+  <Project Path="GenJsonConfig.Demo.Entity1/GenJsonConfig.Demo.Entity1.csproj" />
+  <Project Path="GenJsonConfig.Demo.Entity2/GenJsonConfig.Demo.Entity2.csproj" />
+  <Project Path="GenJsonConfig.Demo/GenJsonConfig.Demo.csproj" />
+  <Project Path="GenJsonConfig.Generators/GenJsonConfig.Generators.csproj" />
+  <Project Path="GenJsonConfig.Tests/GenJsonConfig.Tests.csproj" />
+  <Project Path="GenJsonConfig/GenJsonConfig.csproj" />
+</Solution>

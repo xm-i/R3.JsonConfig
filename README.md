@@ -1,4 +1,4 @@
-# R3.JsonConfig
+# GenJsonConfig
 
 ドメインモデルの JSON シリアライズ用 DTO を自動生成する Source Generator です。
 `ReactiveProperty<T>` や `ObservableList<T>` をはじめ、`[assembly: RegisterJsonConfigWrapper]` 属性により**任意のラッパー型**をプラグインとして登録できます。
@@ -13,7 +13,7 @@
 - **循環参照のハンドリング**: 親子関係や相互参照を持つモデルをシリアライズすると、無限再帰が発生して実行時にクラッシュします。
 - **DI（依存性注入）との連携**: コンストラクタインジェクションを利用しているモデルをデシリアライズで復元する際、標準のシリアライザだけではインスタンス化が困難です。
 
-`R3.JsonConfig` は、Source Generator が最適な DTO を自動生成することで、これらの問題を解決します。
+`GenJsonConfig` は、Source Generator が最適な DTO を自動生成することで、これらの問題を解決します。
 
 ---
 
@@ -34,21 +34,21 @@
 
 ```xml
 <ItemGroup>
-  <ProjectReference Include="..\R3.JsonConfig.Generators\R3.JsonConfig.Generators.csproj" 
-                    OutputItemType="Analyzer" 
+  <ProjectReference Include="..\GenJsonConfig.Generators\GenJsonConfig.Generators.csproj"
+                    OutputItemType="Analyzer"
                     ReferenceOutputAssembly="false" />
 </ItemGroup>
 ```
 
 ### 2. モデルの定義
-保存したいモデルに `[GenerateR3JsonConfigDto]` 属性を付与します。
+保存したいモデルに `[GenerateJsonConfigDto]` 属性を付与します。
 
 ```csharp
 using R3;
 using ObservableCollections;
-using R3.JsonConfig.Attributes;
+using GenJsonConfig.Attributes;
 
-[GenerateR3JsonConfigDto]
+[GenerateJsonConfigDto]
 public class MySettings {
     // ReactiveProperty は自動的に内部の型にマッピングされます
     public ReactiveProperty<string> UserName { get; } = new("Antigravity");
@@ -95,7 +95,7 @@ MySettings restoredModel = MySettingsForJson.CreateModel(loadedDto, serviceProvi
 
 ## 詳細な仕組みと型変換ルール
 
-ジェネレータは `[GenerateR3JsonConfigDto]` が付与されたモデルクラスを解析し、以下の基準に基づいた DTO（末尾 `ForJson`）を生成します。
+ジェネレータは `[GenerateJsonConfigDto]` が付与されたモデルクラスを解析し、以下の基準に基づいた DTO（末尾 `ForJson`）を生成します。
 
 ### 1. プロパティの収集ルール
 モデル内の **public プロパティ** を走査し、以下の条件に合致するものを DTO の対象として収集します。
@@ -127,11 +127,11 @@ MySettings restoredModel = MySettingsForJson.CreateModel(loadedDto, serviceProvi
 | `T`（通常プロパティ） | `T?` | **そのままのマッピング** |
 
 #### 再帰変換の流れ
-プロパティの型 `T` 自体に `[GenerateR3JsonConfigDto]` が付与されている場合、ジェネレータはその型を DTO 型（`TForJson`）へ置き替えます。
+プロパティの型 `T` 自体に `[GenerateJsonConfigDto]` が付与されている場合、ジェネレータはその型を DTO 型（`TForJson`）へ置き替えます。
 これにより、モデルのツリー構造全体が連鎖的に DTO 化され、`CreateJson` / `CreateModel` 内部でも再帰的に変換メソッドが呼び出されます。
 
 > [!NOTE]
-> `Color` のように `[GenerateR3JsonConfigDto]` を持たない外部ライブラリの型は、DTO 上でもそのままの型として出力されます。これらをシリアライズするには別途 `JsonConverter` の登録が必要です。
+> `Color` のように `[GenerateJsonConfigDto]` を持たない外部ライブラリの型は、DTO 上でもそのままの型として出力されます。これらをシリアライズするには別途 `JsonConverter` の登録が必要です。
 
 ---
 
@@ -158,12 +158,12 @@ MySettings restoredModel = MySettingsForJson.CreateModel(loadedDto, serviceProvi
 基底型と派生型のそれぞれに適切な属性を付与します。
 
 ```csharp
-// 基底型: [GenerateR3JsonConfigDto] を付与
-[GenerateR3JsonConfigDto]
+// 基底型: [GenerateJsonConfigDto] を付与
+[GenerateJsonConfigDto]
 public interface IEffect { }
 
-// 派生型: [GenerateR3JsonConfigDto] と [JsonConfigDerivedType] を付与
-[GenerateR3JsonConfigDto]
+// 派生型: [GenerateJsonConfigDto] と [JsonConfigDerivedType] を付与
+[GenerateJsonConfigDto]
 [JsonConfigDerivedType("Blur")]
 public class BlurEffect : IEffect {
     public ReactiveProperty<float> Radius { get; } = new(0f);
@@ -191,7 +191,7 @@ var options = new JsonSerializerOptions() {
 これに対し、**`[JsonConfigCreateScope]`** 属性をプロパティに付与することで、そのプロパティのモデル生成時に毎回新しい DI スコープ (`IServiceScope`) を作成し、それを渡すように制御することが可能です。
 
 ```csharp
-[GenerateR3JsonConfigDto]
+[GenerateJsonConfigDto]
 public class ParentModel {
     // このプロパティの生成時のみ新しく DI スコープを生成する
     [JsonConfigCreateScope]
@@ -213,7 +213,7 @@ public class ParentModel {
 `IJsonConfigWrapper<TWrapper, TInner>` を実装したオープンジェネリックのアダプタークラスを作成します。
 
 ```csharp
-using R3.JsonConfig;
+using GenJsonConfig;
 
 // 自作のラッパー型: MyBox<T> は .Content プロパティで内部値を保持するとする
 public class MyBoxAdapter<T> : IJsonConfigWrapper<MyBox<T>, T> {
@@ -226,7 +226,7 @@ public class MyBoxAdapter<T> : IJsonConfigWrapper<MyBox<T>, T> {
 プロジェクト内の任意の `.cs` ファイルに `assembly:` 属性を記述します。
 
 ```csharp
-using R3.JsonConfig.Attributes;
+using GenJsonConfig.Attributes;
 using MyApp; // MyBox<T> のある名前空間
 
 [assembly: RegisterJsonConfigWrapper(typeof(MyBox<>), typeof(MyBoxAdapter<>))]
@@ -269,7 +269,7 @@ var loadedDto = JsonSerializer.Deserialize<MySettingsForJson>(json, options);
 
 ## 生成されるコードの仕様
 
-`[GenerateR3JsonConfigDto]` を付与したクラスに対し、`obj/` ディレクトリ配下に `[モデル名]ForJson.g.cs` という名前でソースコードが自動生成されます。
+`[GenerateJsonConfigDto]` を付与したクラスに対し、`obj/` ディレクトリ配下に `[モデル名]ForJson.g.cs` という名前でソースコードが自動生成されます。
 
 ### 変換のイメージ（Before / After）
 
@@ -277,7 +277,7 @@ var loadedDto = JsonSerializer.Deserialize<MySettingsForJson>(json, options);
 
 #### 元のモデル定義
 ```csharp
-[GenerateR3JsonConfigDto]
+[GenerateJsonConfigDto]
 public class MySettings {
     public ReactiveProperty<string> UserName { get; } = new("");
     public string Theme { get; set; } = "Dark";

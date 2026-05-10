@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "SourceGeneratorDebug": {
-      "commandName": "DebugRoslynComponent",
-      "targetProject": "..\\R3.JsonConfig.Demo.Composition\\R3.JsonConfig.Demo.Composition.csproj"
-    }
-  }
-}

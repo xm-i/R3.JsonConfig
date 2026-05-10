@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Shouldly" Version="4.3.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <PackageReference Include="ObservableCollections" Version="3.3.4" />
+    <PackageReference Include="R3" Version="1.3.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="6.0.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GenJsonConfig.Generators\GenJsonConfig.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\GenJsonConfig.Generators\GenJsonConfig.Generators.csproj" />
+    <ProjectReference Include="..\GenJsonConfig\GenJsonConfig.csproj" />
+    <ProjectReference Include="..\GenJsonConfig.Demo.Composition\GenJsonConfig.Demo.Composition.csproj" />
+    <ProjectReference Include="..\GenJsonConfig.Demo.Entity1\GenJsonConfig.Demo.Entity1.csproj" />
+    <ProjectReference Include="..\GenJsonConfig.Demo.Entity2\GenJsonConfig.Demo.Entity2.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "profile 1": {
-      "commandName": "DebugRoslynComponent",
-      "targetProject": "..\\R3.JsonConfig.Demo\\R3.JsonConfig.Demo.csproj"
-    }
-  }
-}

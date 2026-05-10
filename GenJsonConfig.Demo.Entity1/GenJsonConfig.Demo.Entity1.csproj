@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GenJsonConfig\GenJsonConfig.csproj" />
+    <ProjectReference Include="..\GenJsonConfig.Demo.Composition\GenJsonConfig.Demo.Composition.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GenJsonConfig.Generators\GenJsonConfig.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>
